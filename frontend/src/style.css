@@ -1,0 +1,229 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+    font-family: "Nunito";
+    font-style: normal;
+    font-weight: 400;
+    src: local(""),
+    url("assets/fonts/nunito-v16-latin-regular.woff2") format("woff2");
+}
+
+/* Variables CSS minimalistes */
+:root {
+    /* Mode clair - minimaliste */
+    --bg-primary: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
+    --bg-glass: rgba(255, 255, 255, 0.25);
+    --bg-glass-strong: rgba(255, 255, 255, 0.4);
+    --text-primary: #1a1a1a;
+    --text-secondary: #666666;
+    --border-glass: rgba(255, 255, 255, 0.3);
+    --shadow-glass: rgba(0, 0, 0, 0.1);
+    --accent: #2563eb;
+    --accent-light: #3b82f6;
+    --accent-muted: rgba(37, 99, 235, 0.1);
+    --surface: rgba(255, 255, 255, 0.1);
+    --blur-amount: 20px;
+}
+
+/* Mode sombre - minimaliste */
+[data-theme="dark"] {
+    --bg-primary: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 100%);
+    --bg-glass: rgba(255, 255, 255, 0.05);
+    --bg-glass-strong: rgba(255, 255, 255, 0.1);
+    --text-primary: #ffffff;
+    --text-secondary: #a3a3a3;
+    --border-glass: rgba(255, 255, 255, 0.1);
+    --shadow-glass: rgba(0, 0, 0, 0.3);
+    --accent: #3b82f6;
+    --accent-light: #60a5fa;
+    --accent-muted: rgba(59, 130, 246, 0.15);
+    --surface: rgba(255, 255, 255, 0.05);
+    --blur-amount: 24px;
+}
+
+/* Base glassmorphism */
+.app-bg {
+    background: var(--bg-primary);
+    min-height: 100vh;
+}
+
+.glass {
+    background: var(--bg-glass);
+    backdrop-filter: blur(var(--blur-amount));
+    -webkit-backdrop-filter: blur(var(--blur-amount));
+    border: 1px solid var(--border-glass);
+    box-shadow: 0 8px 32px var(--shadow-glass);
+}
+
+.glass-strong {
+    background: var(--bg-glass-strong);
+    backdrop-filter: blur(var(--blur-amount));
+    -webkit-backdrop-filter: blur(var(--blur-amount));
+    border: 1px solid var(--border-glass);
+    box-shadow: 0 12px 40px var(--shadow-glass);
+}
+
+/* Boutons minimalistes */
+.btn-primary {
+    background: var(--accent);
+    color: white;
+    border: none;
+    border-radius: 16px;
+    font-weight: 500;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 16px var(--accent-muted);
+}
+
+.btn-primary:hover {
+    background: var(--accent-light);
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px var(--accent-muted);
+}
+
+.btn-secondary {
+    background: var(--surface);
+    color: var(--text-primary);
+    border: 1px solid var(--border-glass);
+    border-radius: 16px;
+    font-weight: 500;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.btn-secondary:hover {
+    background: var(--bg-glass);
+    transform: translateY(-1px);
+}
+
+.btn-secondary.active {
+    background: var(--accent);
+    color: white;
+}
+
+/* Inputs minimalistes */
+.input-glass {
+    background: var(--bg-glass);
+    border: 1px solid var(--border-glass);
+    border-radius: 16px;
+    color: var(--text-primary);
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.input-glass:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-muted);
+    outline: none;
+    background: var(--bg-glass-strong);
+}
+
+.input-glass::placeholder {
+    color: var(--text-secondary);
+}
+
+/* Toggle dark mode minimaliste */
+.theme-toggle {
+    position: fixed;
+    top: 24px;
+    right: 24px;
+    z-index: 1000;
+    background: var(--bg-glass);
+    backdrop-filter: blur(var(--blur-amount));
+    -webkit-backdrop-filter: blur(var(--blur-amount));
+    border: 1px solid var(--border-glass);
+    border-radius: 50%;
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    color: var(--text-primary);
+    font-size: 20px;
+}
+
+.theme-toggle:hover {
+    background: var(--bg-glass-strong);
+    transform: scale(1.05);
+}
+
+/* Cards minimalistes */
+.card-glass {
+    background: var(--bg-glass);
+    backdrop-filter: blur(var(--blur-amount));
+    -webkit-backdrop-filter: blur(var(--blur-amount));
+    border: 1px solid var(--border-glass);
+    border-radius: 24px;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 16px var(--shadow-glass);
+}
+
+.card-glass:hover {
+    background: var(--bg-glass-strong);
+    transform: translateY(-4px);
+    box-shadow: 0 12px 32px var(--shadow-glass);
+}
+
+/* Navigation minimaliste */
+.nav-glass {
+    background: var(--bg-glass);
+    backdrop-filter: blur(var(--blur-amount));
+    -webkit-backdrop-filter: blur(var(--blur-amount));
+    border-bottom: 1px solid var(--border-glass);
+}
+
+/* Header minimaliste */
+.header-glass {
+    background: var(--bg-glass);
+    backdrop-filter: blur(var(--blur-amount));
+    -webkit-backdrop-filter: blur(var(--blur-amount));
+    border-bottom: 1px solid var(--border-glass);
+}
+
+/* Animation loading minimaliste */
+@keyframes pulse-minimal {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+.loading-minimal {
+    animation: pulse-minimal 2s infinite;
+}
+
+/* Scrollbars minimalistes */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--accent);
+    border-radius: 3px;
+    opacity: 0.4;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    opacity: 0.8;
+}
+
+/* États de focus minimalistes */
+.focus-ring:focus {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--accent-muted);
+}
+
+/* Transitions fluides globales */
+* {
+    transition-property: background, border-color, transform, box-shadow;
+    transition-duration: 0.3s;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
