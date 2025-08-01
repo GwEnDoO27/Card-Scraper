@@ -1,5 +1,5 @@
 import {useState, useEffect} from 'react';
-import {AddCard, GetCards, DeleteCard, MoveCard} from '../wailsjs/go/main/App';
+import {AddCard, GetCards, DeleteCard, MoveCard, Sumprice, RescrapAllCards} from '../wailsjs/go/main/App';
 
 function App() {
     const [activeTab, setActiveTab] = useState('collection');
@@ -16,6 +16,23 @@ function App() {
         language: 'Français',
         edition: false
     });
+    const [totalPrice, setTotalPrice] = useState(0);
+    const [rescrapLoading, setRescrapLoading] = useState(false);
+    const [rescrapResults, setRescrapResults] = useState(null);
+
+    // Fonction pour formater les prix avec des points comme séparateurs de milliers
+    const formatPrice = (priceNum) => {
+        if (!priceNum || priceNum === 0) return 'N/A';
+        
+        // Convertir en nombre et formater avec des points pour les milliers
+        const formatted = new Intl.NumberFormat('fr-FR', {
+            style: 'decimal',
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        }).format(priceNum);
+        
+        return formatted + ' €';
+    };
 
     // Gérer le mode sombre
     useEffect(() => {
@@ -34,7 +51,7 @@ function App() {
         setError('');
         
         try {
-            const card = await AddCard({
+            await AddCard({
                 url: newCardUrl,
                 type: activeTab,
                 quality: searchCriteria.quality,
@@ -42,13 +59,8 @@ function App() {
                 edition: searchCriteria.edition
             });
             
-            if (activeTab === 'collection') {
-                setCollectionCards([card, ...collectionCards]);
-            } else {
-                setWishlistCards([card, ...wishlistCards]);
-            }
-            
             setNewCardUrl('');
+            await loadCards(); // Recharger toutes les données pour mettre à jour les cartes et le prix total
         } catch (err) {
             setError(err.message || 'Erreur lors de l\'ajout de la carte');
         } finally {
@@ -59,12 +71,7 @@ function App() {
     const removeCard = async (id) => {
         try {
             await DeleteCard(id);
-            
-            if (activeTab === 'collection') {
-                setCollectionCards(collectionCards.filter(card => card.id !== id));
-            } else {
-                setWishlistCards(wishlistCards.filter(card => card.id !== id));
-            }
+            await loadCards(); // Recharger toutes les données pour mettre à jour les cartes et le prix total
         } catch (err) {
             setError('Erreur lors de la suppression');
         }
@@ -73,20 +80,38 @@ function App() {
     const moveCard = async (cardId, newType) => {
         try {
             await MoveCard(cardId, newType);
-            loadCards();
+            await loadCards(); // Recharger toutes les données pour mettre à jour les cartes et le prix total
         } catch (err) {
             setError('Erreur lors du déplacement');
+        }
+    };
+
+    const rescrapAllCards = async () => {
+        setRescrapLoading(true);
+        setError('');
+        setRescrapResults(null);
+        
+        try {
+            const results = await RescrapAllCards();
+            setRescrapResults(results);
+            await loadCards(); // Recharger les cartes après le rescrap
+        } catch (err) {
+            setError('Erreur lors du rescrap: ' + (err.message || err));
+        } finally {
+            setRescrapLoading(false);
         }
     };
     
     const loadCards = async () => {
         try {
-            const [collection, wishlist] = await Promise.all([
+            const [collection, wishlist, total] = await Promise.all([
                 GetCards('collection'),
-                GetCards('wishlist')
+                GetCards('wishlist'),
+                Sumprice()
             ]);
             setCollectionCards(collection || []);
             setWishlistCards(wishlist || []);
+            setTotalPrice(total || 0);
         } catch (err) {
             setError('Erreur lors du chargement des cartes');
         }
@@ -151,6 +176,36 @@ function App() {
                         {error}
                     </div>
                 )}
+
+                {rescrapResults && (
+                    <div className="mb-6 glass p-4 rounded-2xl" style={{
+                        borderColor: '#10b981',
+                        background: 'rgba(16, 185, 129, 0.1)',
+                        color: '#10b981'
+                    }}>
+                        <h3 className="font-medium mb-2">Rescrap terminé !</h3>
+                        <p>{rescrapResults.updated}/{rescrapResults.total_cards} cartes mises à jour</p>
+                        {rescrapResults.errors > 0 && (
+                            <p style={{color: '#ef4444'}}>{rescrapResults.errors} erreurs</p>
+                        )}
+                    </div>
+                )}
+
+                {/* Bouton Rescrap */}
+                <div className="mb-6 text-center">
+                    <button 
+                        onClick={rescrapAllCards}
+                        disabled={rescrapLoading || loading}
+                        className={`btn-secondary px-6 py-3 font-medium disabled:opacity-50 disabled:cursor-not-allowed ${rescrapLoading ? 'loading-minimal' : ''}`}
+                        style={{
+                            background: 'var(--accent)',
+                            color: 'white',
+                            border: 'none'
+                        }}
+                    >
+                        {rescrapLoading ? 'Rescrap en cours...' : '🔄 Mettre à jour toutes les cartes'}
+                    </button>
+                </div>
                 
                 <div className="glass-strong p-8 mb-8 rounded-3xl">
                     <h2 className="text-xl font-medium mb-6" style={{color: 'var(--text-primary)'}}>
@@ -265,6 +320,11 @@ function App() {
                         <h3 className="text-lg font-medium" style={{color: 'var(--text-primary)'}}>
                             {currentCards.length} {currentCards.length === 1 ? 'Card' : 'Cards'}
                         </h3>
+                        <div className="text-right">
+                            <div className="text-lg font-semibold" style={{color: 'var(--accent)'}}>
+                                Total: {formatPrice(totalPrice)}
+                            </div>
+                        </div>
                     </div>
                     
                     {currentCards.length === 0 ? (
@@ -336,7 +396,7 @@ function App() {
                                         <div className="flex flex-col items-end gap-4">
                                             <div className="text-right">
                                                 <div className="text-2xl font-semibold" style={{color: 'var(--accent)'}}>
-                                                    {card.price || 'N/A'}
+                                                    {card.price_num ? formatPrice(card.price_num) : (card.price || 'N/A')}
                                                 </div>
                                                 <div className="text-xs" style={{color: 'var(--text-secondary)'}}>
                                                     {new Date(card.added_at).toLocaleDateString()}

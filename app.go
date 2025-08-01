@@ -32,10 +32,10 @@ type Card struct {
 	AddedAt     string  `json:"added_at"`
 	LastUpdated string  `json:"last_updated"`
 	// Nouvelles propriétés détaillées
-	Quality     string  `json:"quality"`     // Qualité sélectionnée (NM, LP, etc.)
-	Language    string  `json:"language"`    // Langue sélectionnée
-	Edition     bool    `json:"edition"`     // Première édition ou non
-	TotalOffers int     `json:"total_offers"` // Nombre total d'offres trouvées
+	Quality     string `json:"quality"`      // Qualité sélectionnée (NM, LP, etc.)
+	Language    string `json:"language"`     // Langue sélectionnée
+	Edition     bool   `json:"edition"`      // Première édition ou non
+	TotalOffers int    `json:"total_offers"` // Nombre total d'offres trouvées
 }
 
 type AddCardRequest struct {
@@ -80,7 +80,7 @@ func NewApp() *App {
 	// Ajouter les nouvelles colonnes une par une, en gérant les erreurs
 	newColumns := []string{
 		"ALTER TABLE cards ADD COLUMN quality TEXT DEFAULT ''",
-		"ALTER TABLE cards ADD COLUMN language TEXT DEFAULT ''", 
+		"ALTER TABLE cards ADD COLUMN language TEXT DEFAULT ''",
 		"ALTER TABLE cards ADD COLUMN edition BOOLEAN DEFAULT FALSE",
 		"ALTER TABLE cards ADD COLUMN total_offers INTEGER DEFAULT 0",
 	}
@@ -124,10 +124,10 @@ func (a *App) AddCard(req AddCardRequest) (*Card, error) {
 	cardInfo, err := a.scrapeCardInfo(req.URL, req)
 	if err != nil {
 		// Vérifier si c'est une erreur de critères non trouvés
-		if strings.Contains(err.Error(), "aucune carte correspondant aux critères") || 
-		   strings.Contains(err.Error(), "impossible d'extraire les offres") {
+		if strings.Contains(err.Error(), "aucune carte correspondant aux critères") ||
+			strings.Contains(err.Error(), "impossible d'extraire les offres") {
 			log.Printf("❌ Carte non ajoutée: %v", err)
-			return nil, fmt.Errorf("carte non trouvée avec les critères spécifiés (qualité: %s, langue: %s, édition: %t). Aucune carte similaire disponible", 
+			return nil, fmt.Errorf("carte non trouvée avec les critères spécifiés (qualité: %s, langue: %s, édition: %t). Aucune carte similaire disponible",
 				req.Quality, req.Language, req.Edition)
 		}
 		return nil, fmt.Errorf("erreur lors du scraping: %v", err)
@@ -164,6 +164,125 @@ func (a *App) AddCard(req AddCardRequest) (*Card, error) {
 	card.ID = int(id)
 
 	return card, nil
+}
+
+func (a *App) Sumprice() (float64, error) {
+	var totalPrice float64
+	err := a.db.QueryRow(`
+		SELECT COALESCE(SUM(price_num), 0)
+		FROM cards
+	`).Scan(&totalPrice)
+	if err != nil {
+		return 0.0, err
+	}
+
+	return totalPrice, nil
+}
+
+// Rescraper toutes les cartes pour mettre à jour les prix
+func (a *App) RescrapAllCards() (map[string]interface{}, error) {
+	log.Println("🔄 Début du rescrap de toutes les cartes...")
+	
+	// Récupérer toutes les cartes
+	rows, err := a.db.Query(`
+		SELECT id, card_url, type, quality, language, edition
+		FROM cards
+		ORDER BY id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("erreur lors de la récupération des cartes: %v", err)
+	}
+	defer rows.Close()
+
+	stats := map[string]interface{}{
+		"total_cards": 0,
+		"updated": 0,
+		"errors": 0,
+		"error_details": []string{},
+	}
+
+	var cards []struct {
+		ID       int
+		URL      string
+		Type     string
+		Quality  string
+		Language string
+		Edition  bool
+	}
+
+	// Collecter toutes les cartes
+	for rows.Next() {
+		var card struct {
+			ID       int
+			URL      string
+			Type     string
+			Quality  string
+			Language string
+			Edition  bool
+		}
+		err := rows.Scan(&card.ID, &card.URL, &card.Type, &card.Quality, &card.Language, &card.Edition)
+		if err != nil {
+			log.Printf("Erreur lors de la lecture de la carte: %v", err)
+			continue
+		}
+		cards = append(cards, card)
+	}
+
+	stats["total_cards"] = len(cards)
+	log.Printf("📊 %d cartes à rescraper", len(cards))
+
+	// Rescraper chaque carte
+	for i, card := range cards {
+		log.Printf("🔄 Rescrap carte %d/%d: ID=%d", i+1, len(cards), card.ID)
+		
+		// Créer la requête pour rescraper
+		req := AddCardRequest{
+			URL:      card.URL,
+			Type:     card.Type,
+			Quality:  card.Quality,
+			Language: card.Language,
+			Edition:  card.Edition,
+		}
+
+		// Scraper les nouvelles informations
+		cardInfo, err := a.scrapeCardInfo(card.URL, req)
+		if err != nil {
+			errorMsg := fmt.Sprintf("Carte ID %d: %v", card.ID, err)
+			log.Printf("❌ %s", errorMsg)
+			stats["errors"] = stats["errors"].(int) + 1
+			if errorDetails, ok := stats["error_details"].([]string); ok {
+				stats["error_details"] = append(errorDetails, errorMsg)
+			}
+			continue
+		}
+
+		// Mettre à jour la carte en base
+		_, err = a.db.Exec(`
+			UPDATE cards 
+			SET name = ?, set_name = ?, rarity = ?, price = ?, price_num = ?, 
+			    image_url = ?, last_updated = CURRENT_TIMESTAMP
+			WHERE id = ?
+		`, cardInfo.Name, cardInfo.Set, cardInfo.Rarity, cardInfo.Price, 
+		   cardInfo.PriceNum, cardInfo.ImageURL, card.ID)
+
+		if err != nil {
+			errorMsg := fmt.Sprintf("Carte ID %d: erreur sauvegarde %v", card.ID, err)
+			log.Printf("❌ %s", errorMsg)
+			stats["errors"] = stats["errors"].(int) + 1
+			if errorDetails, ok := stats["error_details"].([]string); ok {
+				stats["error_details"] = append(errorDetails, errorMsg)
+			}
+			continue
+		}
+
+		stats["updated"] = stats["updated"].(int) + 1
+		log.Printf("✅ Carte ID %d mise à jour: %s - %s", card.ID, cardInfo.Price, cardInfo.Name)
+	}
+
+	log.Printf("🎉 Rescrap terminé: %d/%d cartes mises à jour, %d erreurs", 
+		stats["updated"], stats["total_cards"], stats["errors"])
+	
+	return stats, nil
 }
 
 // Récupérer toutes les cartes d'un type
@@ -287,11 +406,13 @@ type CardOffer struct {
 	Edition  bool    `json:"edition"`
 	Price    string  `json:"price"`
 	PriceNum float64 `json:"price_num"`
+	Rarity   string  `json:"rarity"`
+	SetName  string  `json:"set_name"`
 }
 
 func (a *App) scrapeCardInfo(url string, req AddCardRequest) (*ScrapedCardInfo, error) {
 	log.Printf("🚀 Démarrage scraping pour: %s", url)
-	
+
 	// Configuration Chrome optimisée
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", true),
@@ -311,7 +432,7 @@ func (a *App) scrapeCardInfo(url string, req AddCardRequest) (*ScrapedCardInfo, 
 
 	// Première tentative sans charger plus de contenu
 	result := a.launchLoop(req.Quality, req.Language, req.Edition, false, ctx, url)
-	
+
 	// Si pas trouvé, essayer avec le chargement de plus de contenu
 	if result == nil {
 		log.Println("🔄 Première tentative échouée, essai avec chargement supplémentaire...")
@@ -340,16 +461,93 @@ func (a *App) scrapeCardInfo(url string, req AddCardRequest) (*ScrapedCardInfo, 
 	}
 	info.Name = strings.TrimSpace(name)
 
-	// Définir les autres champs avec des valeurs par défaut
-	info.Set = "Set inconnu"
-	info.Rarity = "Rareté inconnue"
+	// Extraire la rareté et le set depuis l'info-list-container
+	var rarityFromPage, setFromPage string
+	err = chromedp.Run(ctx,
+		chromedp.Evaluate(`
+			(function() {
+				var result = {rarity: '', set_name: ''};
+				try {
+					var infoContainer = document.querySelector('.info-list-container');
+					if (infoContainer) {
+						// Extraire la rareté - chercher le SVG avec data-bs-original-title
+						var rarityElement = infoContainer.querySelector('svg[data-bs-original-title]');
+						result.rarity = rarityElement ? rarityElement.getAttribute('data-bs-original-title') : '';
+						
+						// Extraire le nom du set - chercher le lien vers l'expansion
+						var setElement = infoContainer.querySelector('a[href*="/Expansions/"]');
+						result.set_name = setElement ? setElement.textContent.trim() : '';
+					}
+				} catch(e) {
+					console.log('Erreur extraction:', e);
+				}
+				return result;
+			})()
+		`, &map[string]interface{}{}),
+	)
+	
+	// Extraire les valeurs depuis le résultat JavaScript
+	if err == nil {
+		var pageInfo map[string]interface{}
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`
+				(function() {
+					var result = {rarity: '', set_name: ''};
+					try {
+						var infoContainer = document.querySelector('.info-list-container');
+						if (infoContainer) {
+							var rarityElement = infoContainer.querySelector('svg[data-bs-original-title]');
+							result.rarity = rarityElement ? rarityElement.getAttribute('data-bs-original-title') : '';
+							
+							var setElement = infoContainer.querySelector('a[href*="/Expansions/"]');
+							result.set_name = setElement ? setElement.textContent.trim() : '';
+						}
+					} catch(e) {
+						console.log('Erreur extraction:', e);
+					}
+					return result;
+				})()
+			`, &pageInfo),
+		)
+		
+		if err == nil && pageInfo != nil {
+			if rarity, ok := pageInfo["rarity"].(string); ok {
+				rarityFromPage = strings.TrimSpace(rarity)
+			}
+			if setName, ok := pageInfo["set_name"].(string); ok {
+				setFromPage = strings.TrimSpace(setName)
+			}
+		}
+	}
+	
+	log.Printf("Informations extraites de la page: rareté='%s', set='%s'", rarityFromPage, setFromPage)
+
+	// Utiliser les informations extraites, en priorité depuis la page principale
+	if setFromPage != "" {
+		info.Set = setFromPage
+		result.SetName = setFromPage // Mettre à jour aussi dans result pour les logs
+	} else if result.SetName != "" {
+		info.Set = result.SetName
+	} else {
+		info.Set = "Set inconnu"
+	}
+	
+	if rarityFromPage != "" {
+		info.Rarity = rarityFromPage
+		result.Rarity = rarityFromPage // Mettre à jour aussi dans result pour les logs
+	} else if result.Rarity != "" {
+		info.Rarity = result.Rarity
+	} else {
+		info.Rarity = "Rareté inconnue"
+	}
+	
 	info.Offers = []CardOffer{*result}
 
 	// Utiliser la carte trouvée
 	info.Price = result.Price
 	info.PriceNum = result.PriceNum
-	log.Printf("✅ Offre sélectionnée: %s (mint: %s, langue: %s, edition: %t)",
-		result.Price, result.Mint, result.Language, result.Edition)
+	log.Printf("✅ Offre sélectionnée: %s (mint: %s, langue: %s, edition: %t, rarity: %s, set: %s)",
+		result.Price, result.Mint, result.Language, result.Edition, result.Rarity, result.SetName)
 
 	return info, nil
 }
@@ -367,15 +565,44 @@ func (a *App) parseSetAndRarity(description string) (string, string) {
 }
 
 func (a *App) extractNumericPrice(priceText string) float64 {
-	// Extraire le nombre du texte du prix (ex: "3,50 €" -> 3.50)
-	re := regexp.MustCompile(`(\d+(?:[,.]\d+)?)`)
+	// Extraire le nombre du texte du prix
+	// Gère les formats: "3,50 €", "15.000,00€", "1234.56€", etc.
+	
+	// Regex pour capturer les nombres avec séparateurs de milliers et décimales
+	re := regexp.MustCompile(`(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?)`)
 	matches := re.FindStringSubmatch(priceText)
+	
 	if len(matches) > 1 {
-		priceStr := strings.Replace(matches[1], ",", ".", 1)
+		priceStr := matches[1]
+		
+		// Déterminer le format du prix
+		if strings.Contains(priceStr, ".") && strings.Contains(priceStr, ",") {
+			// Format européen: 15.000,50 (point = milliers, virgule = décimales)
+			// Supprimer les points (milliers) et remplacer virgule par point
+			priceStr = strings.ReplaceAll(priceStr, ".", "")
+			priceStr = strings.Replace(priceStr, ",", ".", 1)
+		} else if strings.Count(priceStr, ".") == 1 {
+			// Vérifier si c'est un séparateur de milliers ou de décimales
+			parts := strings.Split(priceStr, ".")
+			if len(parts) == 2 && len(parts[1]) == 3 && !strings.Contains(priceText, ",") {
+				// Probablement un séparateur de milliers: 15.000
+				priceStr = strings.ReplaceAll(priceStr, ".", "")
+			}
+			// Sinon c'est probablement des décimales: 15.50
+		} else if strings.Contains(priceStr, ",") {
+			// Format avec virgule comme séparateur décimal: 15,50
+			priceStr = strings.Replace(priceStr, ",", ".", 1)
+		}
+		
 		if price, err := strconv.ParseFloat(priceStr, 64); err == nil {
+			log.Printf("Prix extrait: '%s' -> %f", priceText, price)
 			return price
+		} else {
+			log.Printf("Erreur conversion prix: '%s' -> '%s' : %v", priceText, priceStr, err)
 		}
 	}
+	
+	log.Printf("Impossible d'extraire le prix de: '%s'", priceText)
 	return 0.0
 }
 
@@ -402,15 +629,15 @@ func (a *App) getPage(moreLoad bool, ctx context.Context, url string) error {
 
 	// Fermer la bannière de cookies avec timeout
 	log.Println("Tentative de fermeture de la bannière cookies...")
-	
+
 	// Créer un contexte avec timeout pour éviter le blocage
 	ctxTimeout, cancelTimeout := context.WithTimeout(ctx, 10*time.Second)
 	defer cancelTimeout()
-	
+
 	// Essayer plusieurs sélecteurs possibles avec timeout
 	cookieSelectors := []string{
 		"#denyAll",
-		"#acceptAll", 
+		"#acceptAll",
 		"[data-testid='cookie-banner-deny']",
 		"[data-testid='cookie-banner-accept']",
 		"button[class*='cookie'][class*='deny']",
@@ -420,7 +647,7 @@ func (a *App) getPage(moreLoad bool, ctx context.Context, url string) error {
 		"//button[contains(text(), 'Reject')]",
 		"//button[contains(text(), 'Accept')]",
 	}
-	
+
 	cookieHandled := false
 	for _, selector := range cookieSelectors {
 		if strings.HasPrefix(selector, "//") {
@@ -436,14 +663,14 @@ func (a *App) getPage(moreLoad bool, ctx context.Context, url string) error {
 				chromedp.Click(selector, chromedp.ByQuery),
 			)
 		}
-		
+
 		if err == nil {
 			log.Printf("Bannière cookies fermée avec le sélecteur: %s\n", selector)
 			cookieHandled = true
 			break
 		}
 	}
-	
+
 	if !cookieHandled {
 		log.Println("Aucune bannière cookies trouvée ou déjà fermée - continuons...")
 		// Attendre un peu au cas où il y aurait encore des éléments qui se chargent
@@ -452,11 +679,11 @@ func (a *App) getPage(moreLoad bool, ctx context.Context, url string) error {
 
 	if moreLoad {
 		log.Println("Tentative de chargement de contenu supplémentaire...")
-		
+
 		// Créer un contexte avec timeout pour le Load More
 		ctxLoadMore, cancelLoadMore := context.WithTimeout(ctx, 15*time.Second)
 		defer cancelLoadMore()
-		
+
 		// Faire défiler vers le bas
 		err = chromedp.Run(ctxLoadMore,
 			chromedp.Sleep(3*time.Second),
@@ -479,12 +706,12 @@ func (a *App) getPage(moreLoad bool, ctx context.Context, url string) error {
 				})()
 			`, &buttonExists),
 		)
-		
+
 		if err != nil {
 			log.Printf("Erreur lors de la vérification du bouton Load More: %v\n", err)
 		} else if buttonExists {
 			log.Println("Bouton Load More détecté, tentative de clic...")
-			
+
 			// Chercher et cliquer sur le bouton "Load More"
 			err = chromedp.Run(ctxLoadMore,
 				chromedp.Evaluate("document.getElementById('loadMoreButton').scrollIntoView({behavior: 'smooth', block: 'center'});", nil),
@@ -508,14 +735,14 @@ func (a *App) getPage(moreLoad bool, ctx context.Context, url string) error {
 // getInfos extrait les informations des cartes de la page
 func (a *App) getInfos(ctx context.Context) ([]CardOffer, error) {
 	log.Println("=== DÉBUT GETINFOS ===")
-	
+
 	var res []CardOffer
 
 	// Attendre que la page se charge avec timeout
 	log.Println("Attente du chargement complet de la page...")
 	ctxTimeout, cancelTimeout := context.WithTimeout(ctx, 20*time.Second)
 	defer cancelTimeout()
-	
+
 	err := chromedp.Run(ctxTimeout,
 		chromedp.WaitVisible("body", chromedp.ByQuery),
 		chromedp.Sleep(5*time.Second),
@@ -527,7 +754,7 @@ func (a *App) getInfos(ctx context.Context) ([]CardOffer, error) {
 
 	// Debug: afficher le titre de la page et l'URL
 	var title, currentURL string
-	err = chromedp.Run(ctx, 
+	err = chromedp.Run(ctx,
 		chromedp.Title(&title),
 		chromedp.Location(&currentURL),
 	)
@@ -539,7 +766,7 @@ func (a *App) getInfos(ctx context.Context) ([]CardOffer, error) {
 	// Debug: compter les éléments avec différents sélecteurs
 	log.Println("=== DEBUGGING SELECTORS ===")
 	possibleSelectors := []string{"article-row", "row", "product-row", "item-row", "offer-row"}
-	
+
 	for _, selector := range possibleSelectors {
 		var count int
 		err = chromedp.Run(ctx,
@@ -577,19 +804,19 @@ func (a *App) getInfos(ctx context.Context) ([]CardOffer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("erreur lors du comptage des lignes: %v", err)
 	}
-	
+
 	log.Printf("Nombre de lignes article-row trouvées: %d\n", rowsCount)
-	
+
 	if rowsCount == 0 {
 		// Essayer d'autres sélecteurs possibles
 		alternativeSelectors := []string{
 			"tr[data-product]",
-			".product-row", 
+			".product-row",
 			".item-row",
 			"[class*='article']",
 			"[class*='product']",
 		}
-		
+
 		for _, altSelector := range alternativeSelectors {
 			var altCount int
 			err = chromedp.Run(ctx,
@@ -599,16 +826,16 @@ func (a *App) getInfos(ctx context.Context) ([]CardOffer, error) {
 				log.Printf("Sélecteur alternatif '%s': %d éléments trouvés\n", altSelector, altCount)
 			}
 		}
-		
+
 		return res, nil // Retourner une liste vide plutôt qu'une erreur
 	}
 
 	// Traiter chaque ligne
 	for i := 0; i < rowsCount; i++ {
 		log.Printf("Traitement de la carte %d/%d...\n", i+1, rowsCount)
-		
+
 		var cardData map[string]interface{}
-		
+
 		// Extraire les informations de chaque carte via JavaScript
 		err = chromedp.Run(ctx,
 			chromedp.Evaluate(fmt.Sprintf(`
@@ -640,8 +867,25 @@ func (a *App) getInfos(ctx context.Context) ([]CardOffer, error) {
 					} catch(e) {
 						result.error = e.toString();
 						result.success = false;
+					}			
+						
+					// Extraire rareté et set depuis les informations de la carte
+					try {
+						var infoContainer = document.querySelector('.info-list-container');
+						if (infoContainer) {
+							// Extraire la rareté - chercher le SVG avec data-bs-original-title
+							var rarityElement = infoContainer.querySelector('svg[data-bs-original-title]');
+							result.rarity = rarityElement ? rarityElement.getAttribute('data-bs-original-title') : '';
+							
+							// Extraire le nom du set - chercher le lien vers l'expansion
+							var setElement = infoContainer.querySelector('a[href*="/Expansions/"]');
+							result.set_name = setElement ? setElement.textContent.trim() : '';
+						}
+					} catch(e) {
+						result.rarity = '';
+						result.set_name = '';
 					}
-					
+
 					return result;
 				})()
 			`, i), &cardData),
@@ -651,12 +895,12 @@ func (a *App) getInfos(ctx context.Context) ([]CardOffer, error) {
 			log.Printf("Erreur JavaScript lors de l'extraction de la carte %d: %v\n", i+1, err)
 			continue
 		}
-		
+
 		if cardData == nil {
 			log.Printf("Carte %d: données null\n", i+1)
 			continue
 		}
-		
+
 		if success, ok := cardData["success"].(bool); !ok || !success {
 			if errorMsg, ok := cardData["error"].(string); ok {
 				log.Printf("Erreur dans l'extraction de la carte %d: %s\n", i+1, errorMsg)
@@ -667,8 +911,10 @@ func (a *App) getInfos(ctx context.Context) ([]CardOffer, error) {
 		mint := ""
 		langue := ""
 		price := ""
+		rarity := ""
+		setName := ""
 		edition := false
-		
+
 		if v, ok := cardData["mint"].(string); ok {
 			mint = strings.TrimSpace(v)
 		}
@@ -677,6 +923,12 @@ func (a *App) getInfos(ctx context.Context) ([]CardOffer, error) {
 		}
 		if v, ok := cardData["price"].(string); ok {
 			price = strings.TrimSpace(v)
+		}
+		if v, ok := cardData["rarity"].(string); ok {
+			rarity = strings.TrimSpace(v)
+		}
+		if v, ok := cardData["set_name"].(string); ok {
+			setName = strings.TrimSpace(v)
 		}
 		if v, ok := cardData["edition"].(bool); ok {
 			edition = v
@@ -688,10 +940,12 @@ func (a *App) getInfos(ctx context.Context) ([]CardOffer, error) {
 			Edition:  edition,
 			Price:    price,
 			PriceNum: a.extractNumericPrice(price),
+			Rarity:   rarity,
+			SetName:  setName,
 		}
 
-		log.Printf("Carte %d extraite: mint='%s', langue='%s', edition=%t, price='%s'\n", 
-			i+1, cardOffer.Mint, cardOffer.Language, cardOffer.Edition, cardOffer.Price)
+		log.Printf("Carte %d extraite: mint='%s', langue='%s', edition=%t, price='%s', rarity='%s', set='%s'\n",
+			i+1, cardOffer.Mint, cardOffer.Language, cardOffer.Edition, cardOffer.Price, cardOffer.Rarity, cardOffer.SetName)
 
 		res = append(res, cardOffer)
 	}
@@ -706,15 +960,15 @@ func (a *App) findTheCard(données []CardOffer, quality, langue string, edition 
 	log.Printf("Nombre total de cartes à examiner: %d\n", len(données))
 
 	for i, row := range données {
-		log.Printf("Carte %d: mint='%s', langue='%s', edition=%t\n", 
+		log.Printf("Carte %d: mint='%s', langue='%s', edition=%t\n",
 			i+1, row.Mint, row.Language, row.Edition)
-		
+
 		if row.Mint == quality && row.Language == langue && row.Edition == edition {
 			log.Printf("Carte trouvée: %+v\n", row)
 			return &row
 		}
 	}
-	
+
 	log.Println("Carte non trouvée, nouvelle tentative en cours...")
 	return nil
 }

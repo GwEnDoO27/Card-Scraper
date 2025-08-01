@@ -12,4 +12,8 @@ export function GetStats():Promise<Record<string, any>>;
 
 export function MoveCard(arg1:number,arg2:string):Promise<void>;
 
+export function RescrapAllCards():Promise<Record<string, any>>;
+
+export function Sumprice():Promise<number>;
+
 export function UpdateCardPriceFixed(arg1:number):Promise<main.Card>;

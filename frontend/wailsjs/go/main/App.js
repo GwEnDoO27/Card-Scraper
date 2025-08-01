@@ -22,6 +22,14 @@ export function MoveCard(arg1, arg2) {
   return window['go']['main']['App']['MoveCard'](arg1, arg2);
 }
 
+export function RescrapAllCards() {
+  return window['go']['main']['App']['RescrapAllCards']();
+}
+
+export function Sumprice() {
+  return window['go']['main']['App']['Sumprice']();
+}
+
 export function UpdateCardPriceFixed(arg1) {
   return window['go']['main']['App']['UpdateCardPriceFixed'](arg1);
 }
