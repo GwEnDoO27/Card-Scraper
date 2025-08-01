@@ -1,0 +1,132 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ created ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4  
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Install Wails CLI
+      run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        npm ci
+
+    - name: Build for Windows
+      run: wails build -platform windows/amd64
+
+    - name: Upload Windows build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: card-scraper-windows-amd64
+        path: build/bin/
+        retention-days: 30
+
+    - name: Create Windows installer (optional)
+      if: github.event_name == 'release'
+      run: |
+        # Add NSIS or Inno Setup commands here if you want to create an installer
+        echo "Installer creation would go here"
+
+  build-cross-platform:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform:
+          - windows/amd64
+          - windows/386
+          - linux/amd64
+          - darwin/amd64
+          - darwin/arm64
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+
+    - name: Install Wails CLI
+      run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+    - name: Install frontend dependencies
+      run: |
+        cd frontend
+        npm ci
+
+    - name: Build for ${{ matrix.platform }}
+      run: wails build -platform ${{ matrix.platform }}
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: card-scraper-${{ matrix.platform }}
+        path: build/bin/
+        retention-days: 30
+
+  release:
+    if: github.event_name == 'release'
+    needs: [build-windows, build-cross-platform]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./artifacts
+
+    - name: Create release archives
+      run: |
+        cd artifacts
+        for dir in */; do
+          if [ -d "$dir" ]; then
+            platform=${dir%/}
+            cd "$dir"
+            if [[ "$platform" == *"windows"* ]]; then
+              zip -r "../${platform}.zip" .
+            else
+              tar -czf "../${platform}.tar.gz" .
+            fi
+            cd ..
+          fi
+        done
+
+    - name: Upload release assets
+      uses: softprops/action-gh-release@v1
+      with:
+        files: artifacts/*.{zip,tar.gz}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
