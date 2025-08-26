@@ -13,31 +13,54 @@
   "info": {
     "productName": "Card Scraper",
     "productVersion": "1.0.0",
-    "copyright": "Copyright © 2024 Gwendal Benard",
-    "comments": "Yu-Gi-Oh! Card Collection Manager"
+    "copyright": "Copyright © 2025 Gwendal Benard",
+    "comments": "Yu-Gi-Oh! Card Collection Manager",
+    "companyName": "Gwendal Benard",
+    "fileDescription": "Yu-Gi-Oh! Card Collection Manager - Track your cards and prices",
+    "internalName": "card-scraper",
+    "originalFilename": "card-scraper.exe",
+    "trademarks": "Yu-Gi-Oh! is a trademark of Konami Digital Entertainment"
   },
   "nsisType": "multiple",
   "obfuscated": false,
   "garbleargs": "",
   "buildMode": "production",
+  "nsis": {
+    "allowElevation": false,
+    "enableInnoSetup": false
+  },
+  "assetdir": "",
+  "reloaddirs": "",
+  "wailsVersion": "2.10.1",
+  "generateHelpers": true,
+  "tags": [],
+  "race": false,
   "frontend:dir": "./frontend",
   "wailsjsdir": "./frontend",
   "debounceMS": 100,
-  "devServer": "http://localhost:34115",
+  "devServer": "localhost:34115",
   "appargs": "",
   "runNonNativeBuildHooks": false,
   "preBuildHooks": {
-    "windows/amd64": "",
+    "windows/amd64": "echo Building for Windows AMD64...",
+    "windows/arm64": "echo Building for Windows ARM64...",
     "linux/amd64": "",
     "darwin/amd64": "",
     "darwin/arm64": ""
   },
   "postBuildHooks": {
-    "windows/amd64": "",
+    "windows/amd64": "echo Windows AMD64 build completed",
+    "windows/arm64": "echo Windows ARM64 build completed",
     "linux/amd64": "",
     "darwin/amd64": "",
     "darwin/arm64": ""
   },
   "windowsConsole": false,
-  "wailsVersion": ""
+  "compilerOptions": {
+    "race": false,
+    "trimpath": true,
+    "ldflags": "-s -w -H=windowsgui"
+  },
+  "outputType": "desktop",
+  "platforms": ["windows/amd64", "windows/arm64"]
 }

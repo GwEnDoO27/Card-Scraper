@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -123,13 +126,26 @@ func (a *App) AddCard(req AddCardRequest) (*Card, error) {
 	// Scraper les informations de la carte
 	cardInfo, err := a.scrapeCardInfo(req.URL, req)
 	if err != nil {
-		// Vérifier si c'est une erreur de critères non trouvés
+		log.Printf("❌ Erreur scraping: %v", err)
+		
+		// Messages d'erreur spécifiques selon le contexte
+		if strings.Contains(err.Error(), "impossible de se connecter au navigateur") {
+			if runtime.GOOS == "windows" {
+				return nil, fmt.Errorf("impossible d'accéder au navigateur. Sur Windows: 1) Vérifiez que Chrome/Edge est installé, 2) Ajoutez l'application aux exclusions antivirus, 3) Désactivez temporairement Windows Defender si nécessaire")
+			}
+			return nil, fmt.Errorf("impossible d'accéder au navigateur: %v", err)
+		}
+		
 		if strings.Contains(err.Error(), "aucune carte correspondant aux critères") ||
 			strings.Contains(err.Error(), "impossible d'extraire les offres") {
-			log.Printf("❌ Carte non ajoutée: %v", err)
 			return nil, fmt.Errorf("carte non trouvée avec les critères spécifiés (qualité: %s, langue: %s, édition: %t). Aucune carte similaire disponible",
 				req.Quality, req.Language, req.Edition)
 		}
+		
+		if strings.Contains(err.Error(), "context deadline exceeded") {
+			return nil, fmt.Errorf("timeout lors de l'accès à CardMarket. Vérifiez votre connexion internet et réessayez")
+		}
+		
 		return nil, fmt.Errorf("erreur lors du scraping: %v", err)
 	}
 
@@ -363,6 +379,30 @@ func (a *App) GetStats() (map[string]interface{}, error) {
 	return stats, nil
 }
 
+// GetSystemInfo retourne des informations système pour debug
+func (a *App) GetSystemInfo() map[string]interface{} {
+	info := map[string]interface{}{
+		"os":           runtime.GOOS,
+		"architecture": runtime.GOARCH,
+		"go_version":   runtime.Version(),
+	}
+
+	if runtime.GOOS == "windows" {
+		// Informations spécifiques Windows
+		browserPath := (&App{}).findWindowsBrowser()
+		info["browser_found"] = browserPath != ""
+		info["browser_path"] = browserPath
+		
+		// Variables d'environnement Windows importantes
+		info["program_files"] = os.Getenv("ProgramFiles")
+		info["program_files_x86"] = os.Getenv("ProgramFiles(x86)")
+		info["local_appdata"] = os.Getenv("LOCALAPPDATA")
+		info["user_profile"] = os.Getenv("USERPROFILE")
+	}
+
+	return info
+}
+
 // Fonctions utilitaires internes
 func (a *App) getCardByURL(url string) (*Card, error) {
 	var card Card
@@ -410,23 +450,122 @@ type CardOffer struct {
 	SetName  string  `json:"set_name"`
 }
 
-func (a *App) scrapeCardInfo(url string, req AddCardRequest) (*ScrapedCardInfo, error) {
-	log.Printf("🚀 Démarrage scraping pour: %s", url)
-
-	// Configuration Chrome optimisée
-	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+// getChromeOptions retourne les options Chrome optimisées selon l'OS
+func (a *App) getChromeOptions() []chromedp.ExecAllocatorOption {
+	opts := []chromedp.ExecAllocatorOption{
 		chromedp.Flag("headless", true),
 		chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("disable-dev-shm-usage", true),
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
-		chromedp.UserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36"),
+		chromedp.Flag("disable-background-timer-throttling", true),
+		chromedp.Flag("disable-backgrounding-occluded-windows", true),
+		chromedp.Flag("disable-renderer-backgrounding", true),
+		chromedp.Flag("disable-features", "TranslateUI"),
+		chromedp.Flag("disable-ipc-flooding-protection", true),
+		chromedp.Flag("disable-extensions", true),
+		chromedp.Flag("disable-default-apps", true),
+		chromedp.Flag("disable-sync", true),
+	}
+
+	// Configuration spécifique à Windows
+	if runtime.GOOS == "windows" {
+		log.Println("🪟 Configuration Windows détectée")
+		
+		// User-Agent Windows
+		opts = append(opts, chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"))
+		
+		// Options spécifiques Windows
+		opts = append(opts, 
+			chromedp.Flag("disable-gpu", true),
+			chromedp.Flag("no-first-run", true),
+			chromedp.Flag("disable-background-networking", true),
+			chromedp.Flag("disable-component-update", true),
+		)
+
+		// Chercher Chrome ou Edge sur Windows
+		chromePath := a.findWindowsBrowser()
+		if chromePath != "" {
+			log.Printf("🌐 Navigateur trouvé: %s", chromePath)
+			opts = append([]chromedp.ExecAllocatorOption{chromedp.ExecPath(chromePath)}, opts...)
+		} else {
+			log.Println("⚠️  Aucun navigateur trouvé, utilisation du défaut")
+		}
+	} else {
+		// Configuration macOS/Linux
+		opts = append(opts, chromedp.UserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"))
+	}
+
+	return opts
+}
+
+// findWindowsBrowser cherche Chrome ou Edge sur Windows
+func (a *App) findWindowsBrowser() string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+
+	// Chemins possibles pour Chrome et Edge
+	browsers := []string{
+		filepath.Join(os.Getenv("ProgramFiles"), "Google", "Chrome", "Application", "chrome.exe"),
+		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Google", "Chrome", "Application", "chrome.exe"),
+		filepath.Join(os.Getenv("ProgramFiles"), "Microsoft", "Edge", "Application", "msedge.exe"),
+		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft", "Edge", "Application", "msedge.exe"),
+		filepath.Join(os.Getenv("LOCALAPPDATA"), "Google", "Chrome", "Application", "chrome.exe"),
+		filepath.Join(os.Getenv("LOCALAPPDATA"), "Microsoft", "Edge", "Application", "msedge.exe"),
+	}
+
+	for _, path := range browsers {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+
+	return ""
+}
+
+// testBrowserConnection teste si le navigateur répond correctement
+func (a *App) testBrowserConnection(ctx context.Context) error {
+	log.Println("🔍 Test de connexion au navigateur...")
+	
+	// Créer un contexte avec timeout court pour le test
+	testCtx, testCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer testCancel()
+
+	// Test simple: naviguer vers about:blank
+	err := chromedp.Run(testCtx,
+		chromedp.Navigate("about:blank"),
+		chromedp.WaitVisible("body", chromedp.ByQuery),
 	)
+
+	if err != nil {
+		// Messages d'erreur spécifiques selon l'OS
+		if runtime.GOOS == "windows" {
+			return fmt.Errorf("échec connexion navigateur Windows: %v. Vérifiez que Chrome/Edge est installé et que l'antivirus n'bloque pas l'application", err)
+		}
+		return fmt.Errorf("échec connexion navigateur: %v", err)
+	}
+
+	log.Println("✅ Navigateur connecté avec succès")
+	return nil
+}
+
+func (a *App) scrapeCardInfo(url string, req AddCardRequest) (*ScrapedCardInfo, error) {
+	log.Printf("🚀 Démarrage scraping pour: %s", url)
+
+	// Configuration Chrome optimisée pour Windows
+	opts := a.getChromeOptions()
 
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	defer allocCancel()
 
-	ctx, ctxCancel := chromedp.NewContext(allocCtx)
+	// Créer le contexte avec logging pour debug
+	ctx, ctxCancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
 	defer ctxCancel()
+
+	// Test de connectivité du navigateur
+	if err := a.testBrowserConnection(ctx); err != nil {
+		return nil, fmt.Errorf("impossible de se connecter au navigateur: %v", err)
+	}
 
 	info := &ScrapedCardInfo{}
 

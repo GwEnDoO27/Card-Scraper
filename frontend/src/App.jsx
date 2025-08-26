@@ -62,7 +62,7 @@ function App() {
             setNewCardUrl('');
             await loadCards(); // Recharger toutes les données pour mettre à jour les cartes et le prix total
         } catch (err) {
-            setError('Erreur lors de l\'ajout de la carte : ', err.message);
+            setError('Erreur lors de l\'ajout de la carte : ' + (err.message || err));
         } finally {
             setLoading(false);
         }
