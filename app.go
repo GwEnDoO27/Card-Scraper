@@ -452,58 +452,85 @@ type CardOffer struct {
 
 // getChromeOptions retourne les options Chrome optimisées selon l'OS
 func (a *App) getChromeOptions() []chromedp.ExecAllocatorOption {
-	// Mode compatibilité antivirus : options moins agressives
-	opts := []chromedp.ExecAllocatorOption{
+	return a.getChromeOptionsWithMode("secure")
+}
+
+// getChromeOptionsWithMode retourne les options selon le mode demandé
+func (a *App) getChromeOptionsWithMode(mode string) []chromedp.ExecAllocatorOption {
+	// Options de base communes
+	baseOpts := []chromedp.ExecAllocatorOption{
 		chromedp.Flag("headless", true),
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
-		chromedp.Flag("disable-features", "VizDisplayCompositor"),
 		chromedp.Flag("disable-extensions", true),
 		chromedp.Flag("disable-default-apps", true),
 		chromedp.Flag("disable-sync", true),
 		chromedp.Flag("disable-translate", true),
-		chromedp.Flag("disable-background-networking", true),
-		chromedp.Flag("disable-background-timer-throttling", false), // Important: laisser false
-		chromedp.Flag("disable-client-side-phishing-detection", true),
-		chromedp.Flag("disable-component-update", true),
-		chromedp.Flag("disable-hang-monitor", true),
-		chromedp.Flag("disable-popup-blocking", true),
-		chromedp.Flag("disable-prompt-on-repost", true),
-		chromedp.Flag("disable-web-security", false), // Important: sécurité activée
 		chromedp.Flag("no-first-run", true),
 		chromedp.Flag("no-default-browser-check", true),
 	}
 
-	// Configuration spécifique à Windows - Mode compatibilité antivirus
-	if runtime.GOOS == "windows" {
-		log.Println("🪟 Mode Windows - Configuration sécurisée antivirus")
+	var opts []chromedp.ExecAllocatorOption
 
+	switch mode {
+	case "secure":
+		// Mode sécurisé - pour antivirus stricts
+		opts = append(baseOpts,
+			chromedp.Flag("disable-features", "VizDisplayCompositor"),
+			chromedp.Flag("disable-background-networking", true),
+			chromedp.Flag("disable-background-timer-throttling", false),
+			chromedp.Flag("disable-client-side-phishing-detection", true),
+			chromedp.Flag("disable-component-update", true),
+			chromedp.Flag("disable-hang-monitor", true),
+			chromedp.Flag("disable-popup-blocking", true),
+			chromedp.Flag("disable-prompt-on-repost", true),
+			chromedp.Flag("disable-web-security", false), // Sécurité activée
+		)
+	case "permissive":
+		// Mode permissif - pour problèmes de connexion
+		opts = append(baseOpts,
+			chromedp.Flag("no-sandbox", true),
+			chromedp.Flag("disable-setuid-sandbox", true),
+			chromedp.Flag("disable-dev-shm-usage", true),
+			chromedp.Flag("disable-accelerated-2d-canvas", true),
+			chromedp.Flag("no-zygote", true),
+			chromedp.Flag("disable-background-networking", false),
+		)
+	case "minimal":
+		// Mode minimal - dernier recours
+		opts = append(baseOpts,
+			chromedp.Flag("no-sandbox", true),
+			chromedp.Flag("disable-setuid-sandbox", true),
+			chromedp.Flag("disable-dev-shm-usage", true),
+			chromedp.Flag("disable-gpu", true),
+			chromedp.Flag("single-process", true),
+		)
+	}
+
+	// Configuration spécifique à Windows
+	if runtime.GOOS == "windows" {
+		log.Printf("🪟 Mode Windows - Configuration %s", mode)
+		
 		// User-Agent Windows standard
 		opts = append(opts, chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"))
+		
+		// Options Windows selon le mode
+		if mode != "minimal" {
+			opts = append(opts, 
+				chromedp.Flag("disable-gpu", true),
+				chromedp.Flag("disable-gpu-sandbox", true),
+				chromedp.Flag("disable-software-rasterizer", true),
+				chromedp.Flag("remote-debugging-port", "0"),
+				chromedp.Flag("log-level", "3"),
+			)
+		}
 
-		// Options Windows avec compatibilité antivirus
-		opts = append(opts,
-			chromedp.Flag("disable-gpu", true),
-			chromedp.Flag("disable-gpu-sandbox", true),
-			chromedp.Flag("disable-software-rasterizer", true),
-			chromedp.Flag("disable-dev-shm-usage", true), // Évite les problèmes de mémoire partagée
-			chromedp.Flag("remote-debugging-port", "0"),  // Désactive le debugging distant
-			chromedp.Flag("disable-logging", true),
-			chromedp.Flag("log-level", "3"), // Erreurs seulement
-			chromedp.Flag("silent", true),
-		)
-
-		// Mode sécurisé : ne pas utiliser --no-sandbox sur Windows par défaut
-		// L'antivirus préfère que le sandbox soit activé
-
-		// Chercher Chrome ou Edge - préférer Edge sur Windows
-		chromePath := a.findWindowsBrowserSecure()
+		// Chercher navigateur avec plusieurs essais
+		chromePath := a.findWindowsBrowserWithFallback()
 		if chromePath != "" {
-			log.Printf("🌐 Navigateur sécurisé trouvé: %s", filepath.Base(chromePath))
+			log.Printf("🌐 Navigateur trouvé: %s", filepath.Base(chromePath))
 			opts = append([]chromedp.ExecAllocatorOption{chromedp.ExecPath(chromePath)}, opts...)
 		} else {
-			log.Println("⚠️  Aucun navigateur trouvé - mode de compatibilité")
-			// En dernier recours, ajouter no-sandbox mais avec avertissement
-			opts = append(opts, chromedp.Flag("no-sandbox", true))
+			log.Println("⚠️  Aucun navigateur spécifique trouvé - utilisation par défaut")
 		}
 	} else {
 		// Configuration macOS/Linux
@@ -549,9 +576,81 @@ func (a *App) findWindowsBrowserSecure() string {
 	return ""
 }
 
+// findWindowsBrowserWithFallback cherche avec plusieurs stratégies
+func (a *App) findWindowsBrowserWithFallback() string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+
+	// Stratégie 1: Navigateurs préférés
+	preferred := []string{
+		// Edge (priorité maximale)
+		filepath.Join(os.Getenv("ProgramFiles"), "Microsoft", "Edge", "Application", "msedge.exe"),
+		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft", "Edge", "Application", "msedge.exe"),
+		filepath.Join(os.Getenv("LOCALAPPDATA"), "Microsoft", "Edge", "Application", "msedge.exe"),
+		
+		// Chrome stable
+		filepath.Join(os.Getenv("ProgramFiles"), "Google", "Chrome", "Application", "chrome.exe"),
+		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Google", "Chrome", "Application", "chrome.exe"),
+		filepath.Join(os.Getenv("LOCALAPPDATA"), "Google", "Chrome", "Application", "chrome.exe"),
+	}
+
+	for _, path := range preferred {
+		if a.testBrowserPath(path) {
+			return path
+		}
+	}
+
+	// Stratégie 2: Recherche étendue
+	extended := []string{
+		// Edge Dev/Beta
+		filepath.Join(os.Getenv("LOCALAPPDATA"), "Microsoft", "Edge Dev", "Application", "msedge.exe"),
+		filepath.Join(os.Getenv("LOCALAPPDATA"), "Microsoft", "Edge Beta", "Application", "msedge.exe"),
+		
+		// Chrome Beta/Dev
+		filepath.Join(os.Getenv("LOCALAPPDATA"), "Google", "Chrome Beta", "Application", "chrome.exe"),
+		filepath.Join(os.Getenv("LOCALAPPDATA"), "Google", "Chrome Dev", "Application", "chrome.exe"),
+		
+		// Chromium
+		filepath.Join(os.Getenv("LOCALAPPDATA"), "Chromium", "Application", "chrome.exe"),
+	}
+
+	for _, path := range extended {
+		if a.testBrowserPath(path) {
+			log.Printf("📍 Navigateur alternatif trouvé: %s", filepath.Base(path))
+			return path
+		}
+	}
+
+	log.Println("❌ Aucun navigateur compatible trouvé")
+	return ""
+}
+
+// testBrowserPath teste si un navigateur est accessible
+func (a *App) testBrowserPath(path string) bool {
+	if _, err := os.Stat(path); err != nil {
+		return false
+	}
+
+	// Test d'accès en lecture
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	file.Close()
+
+	// Test des permissions d'exécution (Windows)
+	if runtime.GOOS == "windows" {
+		// Sur Windows, si on peut ouvrir le fichier, on peut généralement l'exécuter
+		return true
+	}
+
+	return true
+}
+
 // findWindowsBrowser cherche Chrome ou Edge sur Windows (méthode legacy)
 func (a *App) findWindowsBrowser() string {
-	return a.findWindowsBrowserSecure()
+	return a.findWindowsBrowserWithFallback()
 }
 
 // testBrowserConnectionPatient teste la connexion avec patience pour Windows
@@ -645,17 +744,85 @@ func (a *App) scrapeWithRetries(req AddCardRequest, ctx context.Context, url str
 func (a *App) scrapeCardInfo(url string, req AddCardRequest) (*ScrapedCardInfo, error) {
 	log.Printf("🚀 Démarrage scraping pour: %s", url)
 
-	// Configuration Chrome optimisée pour Windows
+	if runtime.GOOS == "windows" {
+		// Sur Windows, essayer plusieurs modes progressivement
+		return a.scrapeWithMultipleModes(url, req)
+	} else {
+		// Mode standard pour macOS/Linux
+		return a.scrapeWithStandardMode(url, req)
+	}
+}
+
+// scrapeWithMultipleModes essaie plusieurs configurations sur Windows
+func (a *App) scrapeWithMultipleModes(url string, req AddCardRequest) (*ScrapedCardInfo, error) {
+	modes := []string{"secure", "permissive", "minimal"}
+	
+	for i, mode := range modes {
+		log.Printf("🎯 Tentative %d/%d avec mode %s", i+1, len(modes), mode)
+		
+		result, err := a.attemptScrapeWithMode(url, req, mode)
+		if err == nil && result != nil {
+			log.Printf("✅ Succès avec le mode %s !", mode)
+			return result, nil
+		}
+		
+		log.Printf("❌ Mode %s échoué: %v", mode, err)
+		if i < len(modes)-1 {
+			log.Println("⏳ Attente avant tentative suivante...")
+			time.Sleep(3 * time.Second)
+		}
+	}
+	
+	return nil, fmt.Errorf("impossible de se connecter au navigateur après tous les modes testés. Vérifiez que Chrome ou Edge est installé et accessible")
+}
+
+// attemptScrapeWithMode tente le scraping avec un mode spécifique
+func (a *App) attemptScrapeWithMode(url string, req AddCardRequest, mode string) (*ScrapedCardInfo, error) {
+	opts := a.getChromeOptionsWithMode(mode)
+
+	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	defer allocCancel()
+
+	// Créer le contexte avec ou sans logging selon le mode
+	var ctx context.Context
+	var ctxCancel context.CancelFunc
+	
+	if mode == "minimal" {
+		// Mode minimal sans logging pour réduire la détection
+		ctx, ctxCancel = chromedp.NewContext(allocCtx)
+	} else {
+		ctx, ctxCancel = chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
+	}
+	defer ctxCancel()
+
+	// Test de connectivité adapté au mode
+	if err := a.testBrowserConnectionForMode(ctx, mode); err != nil {
+		return nil, fmt.Errorf("connexion navigateur impossible en mode %s: %v", mode, err)
+	}
+
+	info := &ScrapedCardInfo{}
+	var result *CardOffer
+
+	// Utiliser la méthode patient pour Windows
+	result = a.scrapeWithRetries(req, ctx, url)
+	if result == nil {
+		return nil, fmt.Errorf("aucune carte trouvée avec le mode %s", mode)
+	}
+
+	// Extraire les informations supplémentaires
+	return a.extractCardDetails(ctx, url, result, info)
+}
+
+// scrapeWithStandardMode pour macOS/Linux
+func (a *App) scrapeWithStandardMode(url string, req AddCardRequest) (*ScrapedCardInfo, error) {
 	opts := a.getChromeOptions()
 
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	defer allocCancel()
 
-	// Créer le contexte avec logging pour debug
 	ctx, ctxCancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
 	defer ctxCancel()
 
-	// Test de connectivité du navigateur avec mode patient pour Windows
 	if err := a.testBrowserConnectionPatient(ctx); err != nil {
 		return nil, fmt.Errorf("impossible de se connecter au navigateur: %v", err)
 	}
@@ -663,37 +830,84 @@ func (a *App) scrapeCardInfo(url string, req AddCardRequest) (*ScrapedCardInfo, 
 	info := &ScrapedCardInfo{}
 	var result *CardOffer
 
-	// Mode Windows : tentatives multiples avec délais plus longs
-	if runtime.GOOS == "windows" {
-		result = a.scrapeWithRetries(req, ctx, url)
-		if result == nil {
-			return nil, fmt.Errorf("aucune carte correspondant aux critères qualité=%s, langue=%s, édition=%t après plusieurs tentatives", req.Quality, req.Language, req.Edition)
+	// Mode standard pour macOS/Linux
+	result = a.launchLoop(req.Quality, req.Language, req.Edition, false, ctx, url)
+	if result == nil {
+		log.Println("🔄 Première tentative échouée, essai avec chargement supplémentaire...")
+		result = a.launchLoop(req.Quality, req.Language, req.Edition, true, ctx, url)
+	}
+	if result == nil {
+		return nil, fmt.Errorf("aucune carte correspondant aux critères qualité=%s, langue=%s, édition=%t", req.Quality, req.Language, req.Edition)
+	}
+
+	return a.extractCardDetails(ctx, url, result, info)
+}
+
+// testBrowserConnectionForMode teste la connexion selon le mode
+func (a *App) testBrowserConnectionForMode(ctx context.Context, mode string) error {
+	var timeout time.Duration
+	var message string
+
+	switch mode {
+	case "secure":
+		timeout = 30 * time.Second
+		message = "🔍 Test navigateur mode sécurisé..."
+	case "permissive":
+		timeout = 20 * time.Second
+		message = "🔍 Test navigateur mode permissif..."
+	case "minimal":
+		timeout = 10 * time.Second
+		message = "🔍 Test navigateur mode minimal..."
+	default:
+		timeout = 15 * time.Second
+		message = "🔍 Test navigateur..."
+	}
+
+	log.Println(message)
+	
+	testCtx, testCancel := context.WithTimeout(ctx, timeout)
+	defer testCancel()
+
+	// Test progressif selon le mode
+	if mode == "secure" {
+		err := chromedp.Run(testCtx,
+			chromedp.Sleep(3*time.Second),
+			chromedp.Navigate("about:blank"),
+			chromedp.Sleep(2*time.Second),
+			chromedp.WaitVisible("body", chromedp.ByQuery),
+		)
+		if err != nil {
+			return fmt.Errorf("test sécurisé échoué: %v", err)
 		}
 	} else {
-		// Mode standard pour macOS/Linux
-		result = a.launchLoop(req.Quality, req.Language, req.Edition, false, ctx, url)
-		if result == nil {
-			log.Println("🔄 Première tentative échouée, essai avec chargement supplémentaire...")
-			result = a.launchLoop(req.Quality, req.Language, req.Edition, true, ctx, url)
-		}
-		if result == nil {
-			return nil, fmt.Errorf("aucune carte correspondant aux critères qualité=%s, langue=%s, édition=%t", req.Quality, req.Language, req.Edition)
+		err := chromedp.Run(testCtx,
+			chromedp.Navigate("about:blank"),
+			chromedp.WaitVisible("body", chromedp.ByQuery),
+		)
+		if err != nil {
+			return fmt.Errorf("test rapide échoué: %v", err)
 		}
 	}
 
+	log.Printf("✅ Connexion navigateur réussie en mode %s", mode)
+	return nil
+}
+
+// extractCardDetails extrait les détails de la page
+func (a *App) extractCardDetails(ctx context.Context, url string, result *CardOffer, info *ScrapedCardInfo) (*ScrapedCardInfo, error) {
 	// Utiliser le résultat obtenu
 	info.Offers = []CardOffer{*result}
 	info.Price = result.Price
 	info.PriceNum = result.PriceNum
 
-	// Extraire les informations de base (nom, set, rareté)
+	// Extraire les informations de base (nom, set, rareté) depuis la page
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(url),
 		chromedp.WaitVisible("body", chromedp.ByQuery),
 		chromedp.Sleep(2*time.Second),
 	)
 	if err != nil {
-		log.Printf("Erreur navigation: %v", err)
+		log.Printf("Erreur navigation pour extraction détails: %v", err)
 	}
 
 	// Extraire le nom
@@ -706,6 +920,7 @@ func (a *App) scrapeCardInfo(url string, req AddCardRequest) (*ScrapedCardInfo, 
 
 	// Extraire la rareté et le set depuis l'info-list-container
 	var rarityFromPage, setFromPage string
+	var pageInfo map[string]any
 	err = chromedp.Run(ctx,
 		chromedp.Evaluate(`
 			(function() {
@@ -726,49 +941,22 @@ func (a *App) scrapeCardInfo(url string, req AddCardRequest) (*ScrapedCardInfo, 
 				}
 				return result;
 			})()
-		`, &map[string]any{}),
+		`, &pageInfo),
 	)
 
-	// Extraire les valeurs depuis le résultat JavaScript
-	if err == nil {
-		var pageInfo map[string]any
-		err = chromedp.Run(ctx,
-			chromedp.Evaluate(`
-				(function() {
-					var result = {rarity: '', set_name: ''};
-					try {
-						var infoContainer = document.querySelector('.info-list-container');
-						if (infoContainer) {
-							var rarityElement = infoContainer.querySelector('svg[data-bs-original-title]');
-							result.rarity = rarityElement ? rarityElement.getAttribute('data-bs-original-title') : '';
-							
-							var setElement = infoContainer.querySelector('a[href*="/Expansions/"]');
-							result.set_name = setElement ? setElement.textContent.trim() : '';
-						}
-					} catch(e) {
-						console.log('Erreur extraction:', e);
-					}
-					return result;
-				})()
-			`, &pageInfo),
-		)
-
-		if err == nil && pageInfo != nil {
-			if rarity, ok := pageInfo["rarity"].(string); ok {
-				rarityFromPage = strings.TrimSpace(rarity)
-			}
-			if setName, ok := pageInfo["set_name"].(string); ok {
-				setFromPage = strings.TrimSpace(setName)
-			}
+	if err == nil && pageInfo != nil {
+		if rarity, ok := pageInfo["rarity"].(string); ok {
+			rarityFromPage = strings.TrimSpace(rarity)
+		}
+		if setName, ok := pageInfo["set_name"].(string); ok {
+			setFromPage = strings.TrimSpace(setName)
 		}
 	}
-
-	log.Printf("Informations extraites de la page: rareté='%s', set='%s'", rarityFromPage, setFromPage)
 
 	// Utiliser les informations extraites, en priorité depuis la page principale
 	if setFromPage != "" {
 		info.Set = setFromPage
-		result.SetName = setFromPage // Mettre à jour aussi dans result pour les logs
+		result.SetName = setFromPage
 	} else if result.SetName != "" {
 		info.Set = result.SetName
 	} else {
@@ -777,20 +965,15 @@ func (a *App) scrapeCardInfo(url string, req AddCardRequest) (*ScrapedCardInfo, 
 
 	if rarityFromPage != "" {
 		info.Rarity = rarityFromPage
-		result.Rarity = rarityFromPage // Mettre à jour aussi dans result pour les logs
+		result.Rarity = rarityFromPage
 	} else if result.Rarity != "" {
 		info.Rarity = result.Rarity
 	} else {
 		info.Rarity = "Rareté inconnue"
 	}
 
-	info.Offers = []CardOffer{*result}
-
-	// Utiliser la carte trouvée
-	info.Price = result.Price
-	info.PriceNum = result.PriceNum
-	log.Printf("✅ Offre sélectionnée: %s (mint: %s, langue: %s, edition: %t, rarity: %s, set: %s)",
-		result.Price, result.Mint, result.Language, result.Edition, result.Rarity, result.SetName)
+	log.Printf("✅ Détails extraits: nom='%s', set='%s', rarity='%s', prix='%s'",
+		info.Name, info.Set, info.Rarity, info.Price)
 
 	return info, nil
 }
