@@ -127,7 +127,7 @@ func (a *App) AddCard(req AddCardRequest) (*Card, error) {
 	cardInfo, err := a.scrapeCardInfo(req.URL, req)
 	if err != nil {
 		log.Printf("❌ Erreur scraping: %v", err)
-		
+
 		// Messages d'erreur spécifiques selon le contexte
 		if strings.Contains(err.Error(), "impossible de se connecter au navigateur") {
 			if runtime.GOOS == "windows" {
@@ -135,17 +135,17 @@ func (a *App) AddCard(req AddCardRequest) (*Card, error) {
 			}
 			return nil, fmt.Errorf("impossible d'accéder au navigateur: %v", err)
 		}
-		
+
 		if strings.Contains(err.Error(), "aucune carte correspondant aux critères") ||
 			strings.Contains(err.Error(), "impossible d'extraire les offres") {
 			return nil, fmt.Errorf("carte non trouvée avec les critères spécifiés (qualité: %s, langue: %s, édition: %t). Aucune carte similaire disponible",
 				req.Quality, req.Language, req.Edition)
 		}
-		
+
 		if strings.Contains(err.Error(), "context deadline exceeded") {
 			return nil, fmt.Errorf("timeout lors de l'accès à CardMarket. Vérifiez votre connexion internet et réessayez")
 		}
-		
+
 		return nil, fmt.Errorf("erreur lors du scraping: %v", err)
 	}
 
@@ -196,9 +196,9 @@ func (a *App) Sumprice() (float64, error) {
 }
 
 // Rescraper toutes les cartes pour mettre à jour les prix
-func (a *App) RescrapAllCards() (map[string]interface{}, error) {
+func (a *App) RescrapAllCards() (map[string]any, error) {
 	log.Println("🔄 Début du rescrap de toutes les cartes...")
-	
+
 	// Récupérer toutes les cartes
 	rows, err := a.db.Query(`
 		SELECT id, card_url, type, quality, language, edition
@@ -210,10 +210,10 @@ func (a *App) RescrapAllCards() (map[string]interface{}, error) {
 	}
 	defer rows.Close()
 
-	stats := map[string]interface{}{
-		"total_cards": 0,
-		"updated": 0,
-		"errors": 0,
+	stats := map[string]any{
+		"total_cards":   0,
+		"updated":       0,
+		"errors":        0,
 		"error_details": []string{},
 	}
 
@@ -250,7 +250,7 @@ func (a *App) RescrapAllCards() (map[string]interface{}, error) {
 	// Rescraper chaque carte
 	for i, card := range cards {
 		log.Printf("🔄 Rescrap carte %d/%d: ID=%d", i+1, len(cards), card.ID)
-		
+
 		// Créer la requête pour rescraper
 		req := AddCardRequest{
 			URL:      card.URL,
@@ -278,8 +278,8 @@ func (a *App) RescrapAllCards() (map[string]interface{}, error) {
 			SET name = ?, set_name = ?, rarity = ?, price = ?, price_num = ?, 
 			    image_url = ?, last_updated = CURRENT_TIMESTAMP
 			WHERE id = ?
-		`, cardInfo.Name, cardInfo.Set, cardInfo.Rarity, cardInfo.Price, 
-		   cardInfo.PriceNum, cardInfo.ImageURL, card.ID)
+		`, cardInfo.Name, cardInfo.Set, cardInfo.Rarity, cardInfo.Price,
+			cardInfo.PriceNum, cardInfo.ImageURL, card.ID)
 
 		if err != nil {
 			errorMsg := fmt.Sprintf("Carte ID %d: erreur sauvegarde %v", card.ID, err)
@@ -295,9 +295,9 @@ func (a *App) RescrapAllCards() (map[string]interface{}, error) {
 		log.Printf("✅ Carte ID %d mise à jour: %s - %s", card.ID, cardInfo.Price, cardInfo.Name)
 	}
 
-	log.Printf("🎉 Rescrap terminé: %d/%d cartes mises à jour, %d erreurs", 
+	log.Printf("🎉 Rescrap terminé: %d/%d cartes mises à jour, %d erreurs",
 		stats["updated"], stats["total_cards"], stats["errors"])
-	
+
 	return stats, nil
 }
 
@@ -352,8 +352,8 @@ func (a *App) moveCard(cardID int, newType string) error {
 }
 
 // Récupérer les statistiques
-func (a *App) GetStats() (map[string]interface{}, error) {
-	stats := make(map[string]interface{})
+func (a *App) GetStats() (map[string]any, error) {
+	stats := make(map[string]any)
 
 	// Compter les cartes par type
 	var collectionCount, wishlistCount int
@@ -380,8 +380,8 @@ func (a *App) GetStats() (map[string]interface{}, error) {
 }
 
 // GetSystemInfo retourne des informations système pour debug
-func (a *App) GetSystemInfo() map[string]interface{} {
-	info := map[string]interface{}{
+func (a *App) GetSystemInfo() map[string]any {
+	info := map[string]any{
 		"os":           runtime.GOOS,
 		"architecture": runtime.GOARCH,
 		"go_version":   runtime.Version(),
@@ -392,7 +392,7 @@ func (a *App) GetSystemInfo() map[string]interface{} {
 		browserPath := (&App{}).findWindowsBrowser()
 		info["browser_found"] = browserPath != ""
 		info["browser_path"] = browserPath
-		
+
 		// Variables d'environnement Windows importantes
 		info["program_files"] = os.Getenv("ProgramFiles")
 		info["program_files_x86"] = os.Getenv("ProgramFiles(x86)")
@@ -476,17 +476,17 @@ func (a *App) getChromeOptions() []chromedp.ExecAllocatorOption {
 	// Configuration spécifique à Windows - Mode compatibilité antivirus
 	if runtime.GOOS == "windows" {
 		log.Println("🪟 Mode Windows - Configuration sécurisée antivirus")
-		
+
 		// User-Agent Windows standard
 		opts = append(opts, chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"))
-		
+
 		// Options Windows avec compatibilité antivirus
-		opts = append(opts, 
+		opts = append(opts,
 			chromedp.Flag("disable-gpu", true),
 			chromedp.Flag("disable-gpu-sandbox", true),
 			chromedp.Flag("disable-software-rasterizer", true),
 			chromedp.Flag("disable-dev-shm-usage", true), // Évite les problèmes de mémoire partagée
-			chromedp.Flag("remote-debugging-port", "0"), // Désactive le debugging distant
+			chromedp.Flag("remote-debugging-port", "0"),  // Désactive le debugging distant
 			chromedp.Flag("disable-logging", true),
 			chromedp.Flag("log-level", "3"), // Erreurs seulement
 			chromedp.Flag("silent", true),
@@ -494,7 +494,7 @@ func (a *App) getChromeOptions() []chromedp.ExecAllocatorOption {
 
 		// Mode sécurisé : ne pas utiliser --no-sandbox sur Windows par défaut
 		// L'antivirus préfère que le sandbox soit activé
-		
+
 		// Chercher Chrome ou Edge - préférer Edge sur Windows
 		chromePath := a.findWindowsBrowserSecure()
 		if chromePath != "" {
@@ -526,7 +526,7 @@ func (a *App) findWindowsBrowserSecure() string {
 		filepath.Join(os.Getenv("ProgramFiles"), "Microsoft", "Edge", "Application", "msedge.exe"),
 		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft", "Edge", "Application", "msedge.exe"),
 		filepath.Join(os.Getenv("LOCALAPPDATA"), "Microsoft", "Edge", "Application", "msedge.exe"),
-		
+
 		// Google Chrome (priorité 2)
 		filepath.Join(os.Getenv("ProgramFiles"), "Google", "Chrome", "Application", "chrome.exe"),
 		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Google", "Chrome", "Application", "chrome.exe"),
@@ -558,7 +558,7 @@ func (a *App) findWindowsBrowser() string {
 func (a *App) testBrowserConnectionPatient(ctx context.Context) error {
 	if runtime.GOOS == "windows" {
 		log.Println("🔍 Test de connexion navigateur Windows (mode patient)...")
-		
+
 		// Timeout plus long pour Windows à cause des antivirus
 		testCtx, testCancel := context.WithTimeout(ctx, 30*time.Second)
 		defer testCancel()
@@ -586,7 +586,7 @@ func (a *App) testBrowserConnectionPatient(ctx context.Context) error {
 // testBrowserConnection teste si le navigateur répond correctement
 func (a *App) testBrowserConnection(ctx context.Context) error {
 	log.Println("🔍 Test de connexion au navigateur...")
-	
+
 	// Créer un contexte avec timeout court pour le test
 	testCtx, testCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer testCancel()
@@ -608,7 +608,7 @@ func (a *App) testBrowserConnection(ctx context.Context) error {
 // scrapeWithRetries effectue le scraping avec plusieurs tentatives pour Windows
 func (a *App) scrapeWithRetries(req AddCardRequest, ctx context.Context, url string) *CardOffer {
 	log.Println("🔄 Mode Windows : scraping avec tentatives multiples...")
-	
+
 	attempts := []struct {
 		delay    time.Duration
 		loadMore bool
@@ -622,7 +622,7 @@ func (a *App) scrapeWithRetries(req AddCardRequest, ctx context.Context, url str
 
 	for i, attempt := range attempts {
 		log.Printf("🎯 %s (%d/%d)...", attempt.name, i+1, len(attempts))
-		
+
 		// Délai avant chaque tentative pour éviter la détection
 		if i > 0 {
 			log.Printf("⏳ Attente de %v avant la tentative...", attempt.delay)
@@ -634,7 +634,7 @@ func (a *App) scrapeWithRetries(req AddCardRequest, ctx context.Context, url str
 			log.Printf("✅ Succès avec %s !", attempt.name)
 			return result
 		}
-		
+
 		log.Printf("❌ %s échouée, passage à la suivante...", attempt.name)
 	}
 
@@ -661,20 +661,17 @@ func (a *App) scrapeCardInfo(url string, req AddCardRequest) (*ScrapedCardInfo, 
 	}
 
 	info := &ScrapedCardInfo{}
+	var result *CardOffer
 
 	// Mode Windows : tentatives multiples avec délais plus longs
 	if runtime.GOOS == "windows" {
-		result := a.scrapeWithRetries(req, ctx, url)
+		result = a.scrapeWithRetries(req, ctx, url)
 		if result == nil {
 			return nil, fmt.Errorf("aucune carte correspondant aux critères qualité=%s, langue=%s, édition=%t après plusieurs tentatives", req.Quality, req.Language, req.Edition)
 		}
-		// Utiliser directement le résultat des tentatives multiples
-		info.Offers = []CardOffer{*result}
-		info.Price = result.Price
-		info.PriceNum = result.PriceNum
 	} else {
 		// Mode standard pour macOS/Linux
-		result := a.launchLoop(req.Quality, req.Language, req.Edition, false, ctx, url)
+		result = a.launchLoop(req.Quality, req.Language, req.Edition, false, ctx, url)
 		if result == nil {
 			log.Println("🔄 Première tentative échouée, essai avec chargement supplémentaire...")
 			result = a.launchLoop(req.Quality, req.Language, req.Edition, true, ctx, url)
@@ -682,10 +679,12 @@ func (a *App) scrapeCardInfo(url string, req AddCardRequest) (*ScrapedCardInfo, 
 		if result == nil {
 			return nil, fmt.Errorf("aucune carte correspondant aux critères qualité=%s, langue=%s, édition=%t", req.Quality, req.Language, req.Edition)
 		}
-		info.Offers = []CardOffer{*result}
-		info.Price = result.Price
-		info.PriceNum = result.PriceNum
 	}
+
+	// Utiliser le résultat obtenu
+	info.Offers = []CardOffer{*result}
+	info.Price = result.Price
+	info.PriceNum = result.PriceNum
 
 	// Extraire les informations de base (nom, set, rareté)
 	err := chromedp.Run(ctx,
@@ -727,12 +726,12 @@ func (a *App) scrapeCardInfo(url string, req AddCardRequest) (*ScrapedCardInfo, 
 				}
 				return result;
 			})()
-		`, &map[string]interface{}{}),
+		`, &map[string]any{}),
 	)
-	
+
 	// Extraire les valeurs depuis le résultat JavaScript
 	if err == nil {
-		var pageInfo map[string]interface{}
+		var pageInfo map[string]any
 		err = chromedp.Run(ctx,
 			chromedp.Evaluate(`
 				(function() {
@@ -753,7 +752,7 @@ func (a *App) scrapeCardInfo(url string, req AddCardRequest) (*ScrapedCardInfo, 
 				})()
 			`, &pageInfo),
 		)
-		
+
 		if err == nil && pageInfo != nil {
 			if rarity, ok := pageInfo["rarity"].(string); ok {
 				rarityFromPage = strings.TrimSpace(rarity)
@@ -763,7 +762,7 @@ func (a *App) scrapeCardInfo(url string, req AddCardRequest) (*ScrapedCardInfo, 
 			}
 		}
 	}
-	
+
 	log.Printf("Informations extraites de la page: rareté='%s', set='%s'", rarityFromPage, setFromPage)
 
 	// Utiliser les informations extraites, en priorité depuis la page principale
@@ -775,7 +774,7 @@ func (a *App) scrapeCardInfo(url string, req AddCardRequest) (*ScrapedCardInfo, 
 	} else {
 		info.Set = "Set inconnu"
 	}
-	
+
 	if rarityFromPage != "" {
 		info.Rarity = rarityFromPage
 		result.Rarity = rarityFromPage // Mettre à jour aussi dans result pour les logs
@@ -784,7 +783,7 @@ func (a *App) scrapeCardInfo(url string, req AddCardRequest) (*ScrapedCardInfo, 
 	} else {
 		info.Rarity = "Rareté inconnue"
 	}
-	
+
 	info.Offers = []CardOffer{*result}
 
 	// Utiliser la carte trouvée
@@ -796,29 +795,17 @@ func (a *App) scrapeCardInfo(url string, req AddCardRequest) (*ScrapedCardInfo, 
 	return info, nil
 }
 
-func (a *App) parseSetAndRarity(description string) (string, string) {
-	// Essayer d'extraire le set et la rareté depuis la description
-	// Format typique: "Set Name - Rarity"
-	parts := strings.Split(description, "-")
-	if len(parts) >= 2 {
-		set := strings.TrimSpace(parts[0])
-		rarity := strings.TrimSpace(parts[1])
-		return set, rarity
-	}
-	return "Set inconnu", "Rareté inconnue"
-}
-
 func (a *App) extractNumericPrice(priceText string) float64 {
 	// Extraire le nombre du texte du prix
 	// Gère les formats: "3,50 €", "15.000,00€", "1234.56€", etc.
-	
+
 	// Regex pour capturer les nombres avec séparateurs de milliers et décimales
 	re := regexp.MustCompile(`(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?)`)
 	matches := re.FindStringSubmatch(priceText)
-	
+
 	if len(matches) > 1 {
 		priceStr := matches[1]
-		
+
 		// Déterminer le format du prix
 		if strings.Contains(priceStr, ".") && strings.Contains(priceStr, ",") {
 			// Format européen: 15.000,50 (point = milliers, virgule = décimales)
@@ -837,7 +824,7 @@ func (a *App) extractNumericPrice(priceText string) float64 {
 			// Format avec virgule comme séparateur décimal: 15,50
 			priceStr = strings.Replace(priceStr, ",", ".", 1)
 		}
-		
+
 		if price, err := strconv.ParseFloat(priceStr, 64); err == nil {
 			log.Printf("Prix extrait: '%s' -> %f", priceText, price)
 			return price
@@ -845,7 +832,7 @@ func (a *App) extractNumericPrice(priceText string) float64 {
 			log.Printf("Erreur conversion prix: '%s' -> '%s' : %v", priceText, priceStr, err)
 		}
 	}
-	
+
 	log.Printf("Impossible d'extraire le prix de: '%s'", priceText)
 	return 0.0
 }
@@ -1078,7 +1065,7 @@ func (a *App) getInfos(ctx context.Context) ([]CardOffer, error) {
 	for i := 0; i < rowsCount; i++ {
 		log.Printf("Traitement de la carte %d/%d...\n", i+1, rowsCount)
 
-		var cardData map[string]interface{}
+		var cardData map[string]any
 
 		// Extraire les informations de chaque carte via JavaScript
 		err = chromedp.Run(ctx,
@@ -1257,7 +1244,7 @@ func (a *App) launchLoop(quality, langue string, edition, load bool, ctx context
 // getPagePatient configure la page avec des délais plus longs pour Windows
 func (a *App) getPagePatient(moreLoad bool, ctx context.Context, url string) error {
 	log.Println("🐌 Mode patient - Navigation avec délais étendus...")
-	
+
 	// Navigation plus lente
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(url),
@@ -1382,7 +1369,7 @@ func (a *App) getInfosPatient(ctx context.Context) ([]CardOffer, error) {
 		// Délai entre chaque carte
 		time.Sleep(1 * time.Second)
 
-		var cardData map[string]interface{}
+		var cardData map[string]any
 		err = chromedp.Run(ctx,
 			chromedp.Evaluate(fmt.Sprintf(`
 				(function() {
@@ -1442,4 +1429,3 @@ func (a *App) getInfosPatient(ctx context.Context) ([]CardOffer, error) {
 	log.Printf("✅ Mode patient: %d cartes extraites\n", len(res))
 	return res, nil
 }
-
