@@ -1,5 +1,5 @@
-import {useState, useEffect} from 'react';
-import {AddCard, GetCards, DeleteCard, MoveCard, Sumprice, RescrapAllCards} from '../wailsjs/go/main/App';
+import { useEffect, useState } from 'react';
+import { AddCard, DeleteCard, GetCards, MoveCard, RescrapAllCards, Sumprice } from '../wailsjs/go/main/App';
 
 function App() {
     const [activeTab, setActiveTab] = useState('collection');
@@ -23,14 +23,14 @@ function App() {
     // Fonction pour formater les prix avec des points comme séparateurs de milliers
     const formatPrice = (priceNum) => {
         if (!priceNum || priceNum === 0) return 'N/A';
-        
+
         // Convertir en nombre et formater avec des points pour les milliers
         const formatted = new Intl.NumberFormat('fr-FR', {
             style: 'decimal',
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
         }).format(priceNum);
-        
+
         return formatted + ' €';
     };
 
@@ -46,10 +46,10 @@ function App() {
 
     const addCard = async () => {
         if (!newCardUrl.trim()) return;
-        
+
         setLoading(true);
         setError('');
-        
+
         try {
             await AddCard({
                 url: newCardUrl,
@@ -58,11 +58,11 @@ function App() {
                 language: searchCriteria.language,
                 edition: searchCriteria.edition
             });
-            
+
             setNewCardUrl('');
             await loadCards(); // Recharger toutes les données pour mettre à jour les cartes et le prix total
         } catch (err) {
-            setError(err.message || 'Erreur lors de l\'ajout de la carte');
+            setError('Erreur lors de l\'ajout de la carte : ', err.message);
         } finally {
             setLoading(false);
         }
@@ -76,7 +76,7 @@ function App() {
             setError('Erreur lors de la suppression');
         }
     };
-    
+
     const moveCard = async (cardId, newType) => {
         try {
             await MoveCard(cardId, newType);
@@ -90,7 +90,7 @@ function App() {
         setRescrapLoading(true);
         setError('');
         setRescrapResults(null);
-        
+
         try {
             const results = await RescrapAllCards();
             setRescrapResults(results);
@@ -101,7 +101,7 @@ function App() {
             setRescrapLoading(false);
         }
     };
-    
+
     const loadCards = async () => {
         try {
             const [collection, wishlist, total] = await Promise.all([
@@ -113,10 +113,10 @@ function App() {
             setWishlistCards(wishlist || []);
             setTotalPrice(total || 0);
         } catch (err) {
-            setError('Erreur lors du chargement des cartes');
+            setError('Erreur lors du chargement des cartes :', err);
         }
     };
-    
+
     useEffect(() => {
         loadCards();
     }, []);
@@ -133,10 +133,10 @@ function App() {
             {/* Header minimaliste */}
             <header className="header-glass py-8">
                 <div className="max-w-4xl mx-auto px-6 text-center">
-                    <h1 className="text-3xl font-light mb-2" style={{color: 'var(--text-primary)'}}>
+                    <h1 className="text-3xl font-light mb-2" style={{ color: 'var(--text-primary)' }}>
                         Card Collection
                     </h1>
-                    <p className="text-sm" style={{color: 'var(--text-secondary)'}}>
+                    <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
                         Yu-Gi-Oh! Manager
                     </p>
                 </div>
@@ -146,18 +146,16 @@ function App() {
             <nav className="nav-glass">
                 <div className="max-w-4xl mx-auto px-6 py-4">
                     <div className="flex gap-1">
-                        <button 
-                            className={`btn-secondary px-6 py-2 text-sm ${
-                                activeTab === 'collection' ? 'active' : ''
-                            }`}
+                        <button
+                            className={`btn-secondary px-6 py-2 text-sm ${activeTab === 'collection' ? 'active' : ''
+                                }`}
                             onClick={() => setActiveTab('collection')}
                         >
                             Collection
                         </button>
-                        <button 
-                            className={`btn-secondary px-6 py-2 text-sm ${
-                                activeTab === 'wishlist' ? 'active' : ''
-                            }`}
+                        <button
+                            className={`btn-secondary px-6 py-2 text-sm ${activeTab === 'wishlist' ? 'active' : ''
+                                }`}
                             onClick={() => setActiveTab('wishlist')}
                         >
                             Wishlist
@@ -186,14 +184,14 @@ function App() {
                         <h3 className="font-medium mb-2">Rescrap terminé !</h3>
                         <p>{rescrapResults.updated}/{rescrapResults.total_cards} cartes mises à jour</p>
                         {rescrapResults.errors > 0 && (
-                            <p style={{color: '#ef4444'}}>{rescrapResults.errors} erreurs</p>
+                            <p style={{ color: '#ef4444' }}>{rescrapResults.errors} erreurs</p>
                         )}
                     </div>
                 )}
 
                 {/* Bouton Rescrap */}
                 <div className="mb-6 text-center">
-                    <button 
+                    <button
                         onClick={rescrapAllCards}
                         disabled={rescrapLoading || loading}
                         className={`btn-secondary px-6 py-3 font-medium disabled:opacity-50 disabled:cursor-not-allowed ${rescrapLoading ? 'loading-minimal' : ''}`}
@@ -206,15 +204,15 @@ function App() {
                         {rescrapLoading ? 'Rescrap en cours...' : '🔄 Mettre à jour toutes les cartes'}
                     </button>
                 </div>
-                
+
                 <div className="glass-strong p-8 mb-8 rounded-3xl">
-                    <h2 className="text-xl font-medium mb-6" style={{color: 'var(--text-primary)'}}>
+                    <h2 className="text-xl font-medium mb-6" style={{ color: 'var(--text-primary)' }}>
                         Add New Card
                     </h2>
-                    
+
                     {/* URL Input */}
                     <div className="mb-6">
-                        <label className="block text-sm mb-3" style={{color: 'var(--text-secondary)'}}>
+                        <label className="block text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>
                             Card URL
                         </label>
                         <input
@@ -229,18 +227,18 @@ function App() {
 
                     {/* Search Criteria */}
                     <div className="mb-8">
-                        <h3 className="text-sm mb-4" style={{color: 'var(--text-secondary)'}}>
+                        <h3 className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>
                             Search Criteria
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             {/* Quality */}
                             <div>
-                                <label className="block text-xs mb-2" style={{color: 'var(--text-secondary)'}}>
+                                <label className="block text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
                                     Quality
                                 </label>
                                 <select
                                     value={searchCriteria.quality}
-                                    onChange={(e) => setSearchCriteria({...searchCriteria, quality: e.target.value})}
+                                    onChange={(e) => setSearchCriteria({ ...searchCriteria, quality: e.target.value })}
                                     className="w-full input-glass px-3 py-2 text-sm"
                                     disabled={loading}
                                 >
@@ -254,12 +252,12 @@ function App() {
 
                             {/* Language */}
                             <div>
-                                <label className="block text-xs mb-2" style={{color: 'var(--text-secondary)'}}>
+                                <label className="block text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
                                     Language
                                 </label>
                                 <select
                                     value={searchCriteria.language}
-                                    onChange={(e) => setSearchCriteria({...searchCriteria, language: e.target.value})}
+                                    onChange={(e) => setSearchCriteria({ ...searchCriteria, language: e.target.value })}
                                     className="w-full input-glass px-3 py-2 text-sm"
                                     disabled={loading}
                                 >
@@ -274,7 +272,7 @@ function App() {
 
                             {/* Edition */}
                             <div>
-                                <label className="block text-xs mb-2" style={{color: 'var(--text-secondary)'}}>
+                                <label className="block text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
                                     Edition
                                 </label>
                                 <div className="flex items-center space-x-4 pt-1">
@@ -283,22 +281,22 @@ function App() {
                                             type="radio"
                                             name="edition"
                                             checked={!searchCriteria.edition}
-                                            onChange={() => setSearchCriteria({...searchCriteria, edition: false})}
+                                            onChange={() => setSearchCriteria({ ...searchCriteria, edition: false })}
                                             className="mr-2 text-blue-500 focus:ring-blue-400"
                                             disabled={loading}
                                         />
-                                        <span style={{color: 'var(--text-primary)'}}>Standard</span>
+                                        <span style={{ color: 'var(--text-primary)' }}>Standard</span>
                                     </label>
                                     <label className="flex items-center cursor-pointer text-sm">
                                         <input
                                             type="radio"
                                             name="edition"
                                             checked={searchCriteria.edition}
-                                            onChange={() => setSearchCriteria({...searchCriteria, edition: true})}
+                                            onChange={() => setSearchCriteria({ ...searchCriteria, edition: true })}
                                             className="mr-2 text-blue-500 focus:ring-blue-400"
                                             disabled={loading}
                                         />
-                                        <span style={{color: 'var(--text-primary)'}}>First Edition</span>
+                                        <span style={{ color: 'var(--text-primary)' }}>First Edition</span>
                                     </label>
                                 </div>
                             </div>
@@ -306,8 +304,8 @@ function App() {
                     </div>
 
                     {/* Add Button */}
-                    <button 
-                        onClick={addCard} 
+                    <button
+                        onClick={addCard}
                         disabled={loading || !newCardUrl.trim()}
                         className={`w-full btn-primary px-6 py-3 font-medium disabled:opacity-50 disabled:cursor-not-allowed ${loading ? 'loading-minimal' : ''}`}
                     >
@@ -317,22 +315,22 @@ function App() {
 
                 <div>
                     <div className="flex items-center justify-between mb-6">
-                        <h3 className="text-lg font-medium" style={{color: 'var(--text-primary)'}}>
+                        <h3 className="text-lg font-medium" style={{ color: 'var(--text-primary)' }}>
                             {currentCards.length} {currentCards.length === 1 ? 'Card' : 'Cards'}
                         </h3>
                         <div className="text-right">
-                            <div className="text-lg font-semibold" style={{color: 'var(--accent)'}}>
+                            <div className="text-lg font-semibold" style={{ color: 'var(--accent)' }}>
                                 Total: {formatPrice(totalPrice)}
                             </div>
                         </div>
                     </div>
-                    
+
                     {currentCards.length === 0 ? (
                         <div className="text-center py-20 glass rounded-3xl">
-                            <p className="text-lg mb-2" style={{color: 'var(--text-secondary)'}}>
+                            <p className="text-lg mb-2" style={{ color: 'var(--text-secondary)' }}>
                                 No cards yet
                             </p>
-                            <p className="text-sm" style={{color: 'var(--text-secondary)'}}>
+                            <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
                                 Add your first card using the form above
                             </p>
                         </div>
@@ -342,30 +340,30 @@ function App() {
                                 <div key={card.id} className="card-glass p-6 group">
                                     <div className="flex items-start gap-6">
                                         {card.image_url && (
-                                            <img 
-                                                src={card.image_url} 
+                                            <img
+                                                src={card.image_url}
                                                 alt={card.name}
                                                 className="w-16 h-20 object-cover rounded-xl flex-shrink-0"
                                             />
                                         )}
                                         <div className="flex-1 min-w-0">
-                                            <h4 className="text-lg font-medium mb-2" style={{color: 'var(--text-primary)'}}>
+                                            <h4 className="text-lg font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
                                                 {card.name || 'Unknown Card'}
                                             </h4>
-                                            
+
                                             {/* Card details */}
                                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-3 text-sm">
                                                 <div>
-                                                    <span style={{color: 'var(--text-secondary)'}}>Set</span>
-                                                    <div style={{color: 'var(--text-primary)'}}>{card.set_name || 'Unknown'}</div>
+                                                    <span style={{ color: 'var(--text-secondary)' }}>Set</span>
+                                                    <div style={{ color: 'var(--text-primary)' }}>{card.set_name || 'Unknown'}</div>
                                                 </div>
                                                 <div>
-                                                    <span style={{color: 'var(--text-secondary)'}}>Rarity</span>
-                                                    <div style={{color: 'var(--text-primary)'}}>{card.rarity || 'Unknown'}</div>
+                                                    <span style={{ color: 'var(--text-secondary)' }}>Rarity</span>
+                                                    <div style={{ color: 'var(--text-primary)' }}>{card.rarity || 'Unknown'}</div>
                                                 </div>
                                                 {card.quality && (
                                                     <div>
-                                                        <span style={{color: 'var(--text-secondary)'}}>Quality</span>
+                                                        <span style={{ color: 'var(--text-secondary)' }}>Quality</span>
                                                         <div className="inline-block px-2 py-1 rounded-lg text-xs font-medium" style={{
                                                             background: 'var(--accent)',
                                                             color: 'white'
@@ -374,46 +372,46 @@ function App() {
                                                 )}
                                                 {card.language && (
                                                     <div>
-                                                        <span style={{color: 'var(--text-secondary)'}}>Language</span>
-                                                        <div style={{color: 'var(--text-primary)'}}>{card.language}</div>
+                                                        <span style={{ color: 'var(--text-secondary)' }}>Language</span>
+                                                        <div style={{ color: 'var(--text-primary)' }}>{card.language}</div>
                                                     </div>
                                                 )}
                                             </div>
-                                            
+
                                             {/* Card link */}
-                                            <a 
-                                                href={card.card_url} 
-                                                target="_blank" 
-                                                rel="noopener noreferrer" 
+                                            <a
+                                                href={card.card_url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
                                                 className="text-sm hover:underline transition-colors"
-                                                style={{color: 'var(--accent)'}}
+                                                style={{ color: 'var(--accent)' }}
                                             >
                                                 View on CardMarket →
                                             </a>
                                         </div>
-                                        
+
                                         {/* Price and actions */}
                                         <div className="flex flex-col items-end gap-4">
                                             <div className="text-right">
-                                                <div className="text-2xl font-semibold" style={{color: 'var(--accent)'}}>
+                                                <div className="text-2xl font-semibold" style={{ color: 'var(--accent)' }}>
                                                     {card.price_num ? formatPrice(card.price_num) : (card.price || 'N/A')}
                                                 </div>
-                                                <div className="text-xs" style={{color: 'var(--text-secondary)'}}>
+                                                <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                                                     {new Date(card.added_at).toLocaleDateString()}
                                                 </div>
                                             </div>
-                                            
+
                                             {/* Action buttons */}
                                             <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                 {activeTab === 'wishlist' && (
-                                                    <button 
+                                                    <button
                                                         onClick={() => moveCard(card.id, 'collection')}
                                                         className="btn-secondary px-3 py-1 text-xs"
                                                     >
                                                         Move to Collection
                                                     </button>
                                                 )}
-                                                <button 
+                                                <button
                                                     onClick={() => removeCard(card.id)}
                                                     className="w-8 h-8 rounded-lg flex items-center justify-center transition-all hover:scale-110"
                                                     style={{
