@@ -452,85 +452,58 @@ type CardOffer struct {
 
 // getChromeOptions retourne les options Chrome optimisées selon l'OS
 func (a *App) getChromeOptions() []chromedp.ExecAllocatorOption {
-	return a.getChromeOptionsWithMode("secure")
-}
-
-// getChromeOptionsWithMode retourne les options selon le mode demandé
-func (a *App) getChromeOptionsWithMode(mode string) []chromedp.ExecAllocatorOption {
-	// Options de base communes
-	baseOpts := []chromedp.ExecAllocatorOption{
+	// Mode compatibilité antivirus : options moins agressives
+	opts := []chromedp.ExecAllocatorOption{
 		chromedp.Flag("headless", true),
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
+		chromedp.Flag("disable-features", "VizDisplayCompositor"),
 		chromedp.Flag("disable-extensions", true),
 		chromedp.Flag("disable-default-apps", true),
 		chromedp.Flag("disable-sync", true),
 		chromedp.Flag("disable-translate", true),
+		chromedp.Flag("disable-background-networking", true),
+		chromedp.Flag("disable-background-timer-throttling", false), // Important: laisser false
+		chromedp.Flag("disable-client-side-phishing-detection", true),
+		chromedp.Flag("disable-component-update", true),
+		chromedp.Flag("disable-hang-monitor", true),
+		chromedp.Flag("disable-popup-blocking", true),
+		chromedp.Flag("disable-prompt-on-repost", true),
+		chromedp.Flag("disable-web-security", false), // Important: sécurité activée
 		chromedp.Flag("no-first-run", true),
 		chromedp.Flag("no-default-browser-check", true),
 	}
 
-	var opts []chromedp.ExecAllocatorOption
-
-	switch mode {
-	case "secure":
-		// Mode sécurisé - pour antivirus stricts
-		opts = append(baseOpts,
-			chromedp.Flag("disable-features", "VizDisplayCompositor"),
-			chromedp.Flag("disable-background-networking", true),
-			chromedp.Flag("disable-background-timer-throttling", false),
-			chromedp.Flag("disable-client-side-phishing-detection", true),
-			chromedp.Flag("disable-component-update", true),
-			chromedp.Flag("disable-hang-monitor", true),
-			chromedp.Flag("disable-popup-blocking", true),
-			chromedp.Flag("disable-prompt-on-repost", true),
-			chromedp.Flag("disable-web-security", false), // Sécurité activée
-		)
-	case "permissive":
-		// Mode permissif - pour problèmes de connexion
-		opts = append(baseOpts,
-			chromedp.Flag("no-sandbox", true),
-			chromedp.Flag("disable-setuid-sandbox", true),
-			chromedp.Flag("disable-dev-shm-usage", true),
-			chromedp.Flag("disable-accelerated-2d-canvas", true),
-			chromedp.Flag("no-zygote", true),
-			chromedp.Flag("disable-background-networking", false),
-		)
-	case "minimal":
-		// Mode minimal - dernier recours
-		opts = append(baseOpts,
-			chromedp.Flag("no-sandbox", true),
-			chromedp.Flag("disable-setuid-sandbox", true),
-			chromedp.Flag("disable-dev-shm-usage", true),
-			chromedp.Flag("disable-gpu", true),
-			chromedp.Flag("single-process", true),
-		)
-	}
-
-	// Configuration spécifique à Windows
+	// Configuration spécifique à Windows - Mode compatibilité antivirus
 	if runtime.GOOS == "windows" {
-		log.Printf("🪟 Mode Windows - Configuration %s", mode)
-		
+		log.Println("🪟 Mode Windows - Configuration sécurisée antivirus")
+
 		// User-Agent Windows standard
 		opts = append(opts, chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"))
-		
-		// Options Windows selon le mode
-		if mode != "minimal" {
-			opts = append(opts, 
-				chromedp.Flag("disable-gpu", true),
-				chromedp.Flag("disable-gpu-sandbox", true),
-				chromedp.Flag("disable-software-rasterizer", true),
-				chromedp.Flag("remote-debugging-port", "0"),
-				chromedp.Flag("log-level", "3"),
-			)
-		}
 
-		// Chercher navigateur avec plusieurs essais
-		chromePath := a.findWindowsBrowserWithFallback()
+		// Options Windows avec compatibilité antivirus
+		opts = append(opts,
+			chromedp.Flag("disable-gpu", true),
+			chromedp.Flag("disable-gpu-sandbox", true),
+			chromedp.Flag("disable-software-rasterizer", true),
+			chromedp.Flag("disable-dev-shm-usage", true), // Évite les problèmes de mémoire partagée
+			chromedp.Flag("remote-debugging-port", "0"),  // Désactive le debugging distant
+			chromedp.Flag("disable-logging", true),
+			chromedp.Flag("log-level", "3"), // Erreurs seulement
+			chromedp.Flag("silent", true),
+		)
+
+		// Mode sécurisé : ne pas utiliser --no-sandbox sur Windows par défaut
+		// L'antivirus préfère que le sandbox soit activé
+
+		// Chercher Chrome ou Edge - préférer Edge sur Windows
+		chromePath := a.findWindowsBrowserSecure()
 		if chromePath != "" {
-			log.Printf("🌐 Navigateur trouvé: %s", filepath.Base(chromePath))
+			log.Printf("🌐 Navigateur sécurisé trouvé: %s", filepath.Base(chromePath))
 			opts = append([]chromedp.ExecAllocatorOption{chromedp.ExecPath(chromePath)}, opts...)
 		} else {
-			log.Println("⚠️  Aucun navigateur spécifique trouvé - utilisation par défaut")
+			log.Println("⚠️  Aucun navigateur trouvé - mode de compatibilité")
+			// En dernier recours, ajouter no-sandbox mais avec avertissement
+			opts = append(opts, chromedp.Flag("no-sandbox", true))
 		}
 	} else {
 		// Configuration macOS/Linux
@@ -541,23 +514,116 @@ func (a *App) getChromeOptionsWithMode(mode string) []chromedp.ExecAllocatorOpti
 	return opts
 }
 
-// findWindowsBrowserSecure cherche un navigateur en privilégiant Edge pour la sécurité
+// getChromeOptionsSecure retourne les options Chrome sécurisées pour Windows
+func (a *App) getChromeOptionsSecure() []chromedp.ExecAllocatorOption {
+	opts := []chromedp.ExecAllocatorOption{
+		chromedp.Flag("headless", true),
+		chromedp.Flag("disable-blink-features", "AutomationControlled"),
+		chromedp.Flag("disable-features", "VizDisplayCompositor"),
+		chromedp.Flag("disable-extensions", true),
+		chromedp.Flag("disable-default-apps", true),
+		chromedp.Flag("disable-sync", true),
+		chromedp.Flag("disable-translate", true),
+		chromedp.Flag("disable-background-networking", true),
+		chromedp.Flag("disable-client-side-phishing-detection", true),
+		chromedp.Flag("disable-component-update", true),
+		chromedp.Flag("disable-hang-monitor", true),
+		chromedp.Flag("disable-popup-blocking", true),
+		chromedp.Flag("disable-prompt-on-repost", true),
+		chromedp.Flag("disable-web-security", false), // Sécurité activée
+		chromedp.Flag("no-first-run", true),
+		chromedp.Flag("no-default-browser-check", true),
+		chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("disable-gpu-sandbox", true),
+		chromedp.Flag("disable-software-rasterizer", true),
+		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("remote-debugging-port", "0"),
+		chromedp.Flag("disable-logging", true),
+		chromedp.Flag("log-level", "3"),
+		chromedp.Flag("silent", true),
+	}
+
+	// Chercher Edge ou Chrome
+	chromePath := a.findWindowsBrowserSecure()
+	if chromePath != "" {
+		log.Printf("🌐 Navigateur trouvé: %s", filepath.Base(chromePath))
+		opts = append([]chromedp.ExecAllocatorOption{chromedp.ExecPath(chromePath)}, opts...)
+	}
+
+	return opts
+}
+
+// getChromeOptionsPermissive retourne les options Chrome permissives pour Windows
+func (a *App) getChromeOptionsPermissive() []chromedp.ExecAllocatorOption {
+	opts := a.getChromeOptionsSecure()
+	
+	// Ajouter des options plus permissives
+	opts = append(opts,
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-setuid-sandbox", true),
+		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("disable-accelerated-2d-canvas", true),
+		chromedp.Flag("disable-accelerated-jpeg-decoding", true),
+		chromedp.Flag("disable-accelerated-mjpeg-decode", true),
+		chromedp.Flag("disable-accelerated-video-decode", true),
+	)
+
+	return opts
+}
+
+// getChromeOptionsMinimal retourne les options Chrome minimales pour Windows
+func (a *App) getChromeOptionsMinimal() []chromedp.ExecAllocatorOption {
+	opts := []chromedp.ExecAllocatorOption{
+		chromedp.Flag("headless", true),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-setuid-sandbox", true),
+		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("disable-web-security", true),
+		chromedp.Flag("disable-extensions", true),
+		chromedp.Flag("disable-plugins", true),
+		chromedp.Flag("disable-images", true),
+		chromedp.Flag("disable-javascript", false), // JavaScript nécessaire
+		chromedp.Flag("disable-blink-features", "AutomationControlled"),
+		chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
+	}
+
+	// Chercher navigateur
+	chromePath := a.findWindowsBrowserSecure()
+	if chromePath != "" {
+		opts = append([]chromedp.ExecAllocatorOption{chromedp.ExecPath(chromePath)}, opts...)
+	}
+
+	return opts
+}
+
+
+// findWindowsBrowserSecure cherche un navigateur en privilégiant Chrome pour la compatibilité
 func (a *App) findWindowsBrowserSecure() string {
 	if runtime.GOOS != "windows" {
 		return ""
 	}
 
-	// Ordre de préférence : Edge puis Chrome (Edge est moins suspect pour les antivirus)
+	// Ordre de préférence : Chrome puis Edge (Chrome est plus compatible avec chromedp)
 	browsers := []string{
-		// Microsoft Edge (priorité 1 - intégré à Windows)
-		filepath.Join(os.Getenv("ProgramFiles"), "Microsoft", "Edge", "Application", "msedge.exe"),
-		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft", "Edge", "Application", "msedge.exe"),
-		filepath.Join(os.Getenv("LOCALAPPDATA"), "Microsoft", "Edge", "Application", "msedge.exe"),
-
-		// Google Chrome (priorité 2)
+		// Google Chrome (priorité 1 - meilleure compatibilité chromedp)
 		filepath.Join(os.Getenv("ProgramFiles"), "Google", "Chrome", "Application", "chrome.exe"),
 		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Google", "Chrome", "Application", "chrome.exe"),
 		filepath.Join(os.Getenv("LOCALAPPDATA"), "Google", "Chrome", "Application", "chrome.exe"),
+		
+		// Chrome Canary (version développeur)
+		filepath.Join(os.Getenv("LOCALAPPDATA"), "Google", "Chrome SxS", "Application", "chrome.exe"),
+		
+		// Chromium (open source)
+		filepath.Join(os.Getenv("ProgramFiles"), "Chromium", "Application", "chrome.exe"),
+		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Chromium", "Application", "chrome.exe"),
+		filepath.Join(os.Getenv("LOCALAPPDATA"), "Chromium", "Application", "chrome.exe"),
+
+		// Microsoft Edge (priorité 2 - peut causer des problèmes avec chromedp)
+		filepath.Join(os.Getenv("ProgramFiles"), "Microsoft", "Edge", "Application", "msedge.exe"),
+		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft", "Edge", "Application", "msedge.exe"),
+		filepath.Join(os.Getenv("LOCALAPPDATA"), "Microsoft", "Edge", "Application", "msedge.exe"),
 	}
 
 	for _, path := range browsers {
@@ -565,7 +631,17 @@ func (a *App) findWindowsBrowserSecure() string {
 			// Vérifier que le fichier est accessible en lecture
 			if file, err := os.Open(path); err == nil {
 				file.Close()
-				log.Printf("✅ Navigateur accessible: %s", filepath.Base(path))
+				browserName := filepath.Base(path)
+				log.Printf("✅ Navigateur accessible: %s", browserName)
+				
+				// Avertissement spécial pour Edge
+				if browserName == "msedge.exe" {
+					log.Println("⚠️  Edge détecté - peut causer des problèmes 'invalid context'")
+					log.Println("💡 Pour de meilleurs résultats, installez Google Chrome")
+				} else if browserName == "chrome.exe" {
+					log.Println("✅ Chrome détecté - excellente compatibilité chromedp")
+				}
+				
 				return path
 			} else {
 				log.Printf("⚠️  Navigateur trouvé mais non accessible: %s (%v)", filepath.Base(path), err)
@@ -576,111 +652,11 @@ func (a *App) findWindowsBrowserSecure() string {
 	return ""
 }
 
-// findWindowsBrowserWithFallback cherche avec plusieurs stratégies
-func (a *App) findWindowsBrowserWithFallback() string {
-	if runtime.GOOS != "windows" {
-		return ""
-	}
-
-	// Stratégie 1: Navigateurs préférés
-	preferred := []string{
-		// Edge (priorité maximale)
-		filepath.Join(os.Getenv("ProgramFiles"), "Microsoft", "Edge", "Application", "msedge.exe"),
-		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Microsoft", "Edge", "Application", "msedge.exe"),
-		filepath.Join(os.Getenv("LOCALAPPDATA"), "Microsoft", "Edge", "Application", "msedge.exe"),
-		
-		// Chrome stable
-		filepath.Join(os.Getenv("ProgramFiles"), "Google", "Chrome", "Application", "chrome.exe"),
-		filepath.Join(os.Getenv("ProgramFiles(x86)"), "Google", "Chrome", "Application", "chrome.exe"),
-		filepath.Join(os.Getenv("LOCALAPPDATA"), "Google", "Chrome", "Application", "chrome.exe"),
-	}
-
-	for _, path := range preferred {
-		if a.testBrowserPath(path) {
-			return path
-		}
-	}
-
-	// Stratégie 2: Recherche étendue
-	extended := []string{
-		// Edge Dev/Beta
-		filepath.Join(os.Getenv("LOCALAPPDATA"), "Microsoft", "Edge Dev", "Application", "msedge.exe"),
-		filepath.Join(os.Getenv("LOCALAPPDATA"), "Microsoft", "Edge Beta", "Application", "msedge.exe"),
-		
-		// Chrome Beta/Dev
-		filepath.Join(os.Getenv("LOCALAPPDATA"), "Google", "Chrome Beta", "Application", "chrome.exe"),
-		filepath.Join(os.Getenv("LOCALAPPDATA"), "Google", "Chrome Dev", "Application", "chrome.exe"),
-		
-		// Chromium
-		filepath.Join(os.Getenv("LOCALAPPDATA"), "Chromium", "Application", "chrome.exe"),
-	}
-
-	for _, path := range extended {
-		if a.testBrowserPath(path) {
-			log.Printf("📍 Navigateur alternatif trouvé: %s", filepath.Base(path))
-			return path
-		}
-	}
-
-	log.Println("❌ Aucun navigateur compatible trouvé")
-	return ""
-}
-
-// testBrowserPath teste si un navigateur est accessible
-func (a *App) testBrowserPath(path string) bool {
-	if _, err := os.Stat(path); err != nil {
-		return false
-	}
-
-	// Test d'accès en lecture
-	file, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	file.Close()
-
-	// Test des permissions d'exécution (Windows)
-	if runtime.GOOS == "windows" {
-		// Sur Windows, si on peut ouvrir le fichier, on peut généralement l'exécuter
-		return true
-	}
-
-	return true
-}
-
 // findWindowsBrowser cherche Chrome ou Edge sur Windows (méthode legacy)
 func (a *App) findWindowsBrowser() string {
-	return a.findWindowsBrowserWithFallback()
+	return a.findWindowsBrowserSecure()
 }
 
-// testBrowserConnectionPatient teste la connexion avec patience pour Windows
-func (a *App) testBrowserConnectionPatient(ctx context.Context) error {
-	if runtime.GOOS == "windows" {
-		log.Println("🔍 Test de connexion navigateur Windows (mode patient)...")
-
-		// Timeout plus long pour Windows à cause des antivirus
-		testCtx, testCancel := context.WithTimeout(ctx, 30*time.Second)
-		defer testCancel()
-
-		// Test progressif pour éviter les détections
-		err := chromedp.Run(testCtx,
-			// Attendre plus longtemps au démarrage
-			chromedp.Sleep(3*time.Second),
-			chromedp.Navigate("about:blank"),
-			chromedp.Sleep(2*time.Second),
-			chromedp.WaitVisible("body", chromedp.ByQuery),
-		)
-
-		if err != nil {
-			return fmt.Errorf("connexion navigateur impossible: %v. Solutions: 1) Redémarrez l'app en tant qu'administrateur, 2) Ajoutez l'app aux exclusions antivirus, 3) Vérifiez qu'Edge/Chrome est installé", err)
-		}
-
-		log.Println("✅ Navigateur Windows connecté avec succès")
-		return nil
-	} else {
-		return a.testBrowserConnection(ctx)
-	}
-}
 
 // testBrowserConnection teste si le navigateur répond correctement
 func (a *App) testBrowserConnection(ctx context.Context) error {
@@ -744,170 +720,44 @@ func (a *App) scrapeWithRetries(req AddCardRequest, ctx context.Context, url str
 func (a *App) scrapeCardInfo(url string, req AddCardRequest) (*ScrapedCardInfo, error) {
 	log.Printf("🚀 Démarrage scraping pour: %s", url)
 
-	if runtime.GOOS == "windows" {
-		// Sur Windows, essayer plusieurs modes progressivement
-		return a.scrapeWithMultipleModes(url, req)
-	} else {
-		// Mode standard pour macOS/Linux
-		return a.scrapeWithStandardMode(url, req)
-	}
-}
-
-// scrapeWithMultipleModes essaie plusieurs configurations sur Windows
-func (a *App) scrapeWithMultipleModes(url string, req AddCardRequest) (*ScrapedCardInfo, error) {
-	modes := []string{"secure", "permissive", "minimal"}
-	
-	for i, mode := range modes {
-		log.Printf("🎯 Tentative %d/%d avec mode %s", i+1, len(modes), mode)
-		
-		result, err := a.attemptScrapeWithMode(url, req, mode)
-		if err == nil && result != nil {
-			log.Printf("✅ Succès avec le mode %s !", mode)
-			return result, nil
-		}
-		
-		log.Printf("❌ Mode %s échoué: %v", mode, err)
-		if i < len(modes)-1 {
-			log.Println("⏳ Attente avant tentative suivante...")
-			time.Sleep(3 * time.Second)
-		}
-	}
-	
-	return nil, fmt.Errorf("impossible de se connecter au navigateur après tous les modes testés. Vérifiez que Chrome ou Edge est installé et accessible")
-}
-
-// attemptScrapeWithMode tente le scraping avec un mode spécifique
-func (a *App) attemptScrapeWithMode(url string, req AddCardRequest, mode string) (*ScrapedCardInfo, error) {
-	opts := a.getChromeOptionsWithMode(mode)
+	// Configuration Chrome optimisée
+	opts := append(chromedp.DefaultExecAllocatorOptions[:],
+		chromedp.Flag("headless", true),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.Flag("disable-blink-features", "AutomationControlled"),
+		chromedp.UserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36"),
+	)
 
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	defer allocCancel()
 
-	// Créer le contexte avec ou sans logging selon le mode
-	var ctx context.Context
-	var ctxCancel context.CancelFunc
-	
-	if mode == "minimal" {
-		// Mode minimal sans logging pour réduire la détection
-		ctx, ctxCancel = chromedp.NewContext(allocCtx)
-	} else {
-		ctx, ctxCancel = chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
-	}
+	ctx, ctxCancel := chromedp.NewContext(allocCtx)
 	defer ctxCancel()
 
-	// Test de connectivité adapté au mode
-	if err := a.testBrowserConnectionForMode(ctx, mode); err != nil {
-		return nil, fmt.Errorf("connexion navigateur impossible en mode %s: %v", mode, err)
-	}
-
 	info := &ScrapedCardInfo{}
-	var result *CardOffer
 
-	// Utiliser la méthode patient pour Windows
-	result = a.scrapeWithRetries(req, ctx, url)
-	if result == nil {
-		return nil, fmt.Errorf("aucune carte trouvée avec le mode %s", mode)
-	}
+	// Première tentative sans charger plus de contenu
+	result := a.launchLoop(req.Quality, req.Language, req.Edition, false, ctx, url)
 
-	// Extraire les informations supplémentaires
-	return a.extractCardDetails(ctx, url, result, info)
-}
-
-// scrapeWithStandardMode pour macOS/Linux
-func (a *App) scrapeWithStandardMode(url string, req AddCardRequest) (*ScrapedCardInfo, error) {
-	opts := a.getChromeOptions()
-
-	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
-	defer allocCancel()
-
-	ctx, ctxCancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
-	defer ctxCancel()
-
-	if err := a.testBrowserConnectionPatient(ctx); err != nil {
-		return nil, fmt.Errorf("impossible de se connecter au navigateur: %v", err)
-	}
-
-	info := &ScrapedCardInfo{}
-	var result *CardOffer
-
-	// Mode standard pour macOS/Linux
-	result = a.launchLoop(req.Quality, req.Language, req.Edition, false, ctx, url)
+	// Si pas trouvé, essayer avec le chargement de plus de contenu
 	if result == nil {
 		log.Println("🔄 Première tentative échouée, essai avec chargement supplémentaire...")
 		result = a.launchLoop(req.Quality, req.Language, req.Edition, true, ctx, url)
 	}
+
 	if result == nil {
 		return nil, fmt.Errorf("aucune carte correspondant aux critères qualité=%s, langue=%s, édition=%t", req.Quality, req.Language, req.Edition)
 	}
 
-	return a.extractCardDetails(ctx, url, result, info)
-}
-
-// testBrowserConnectionForMode teste la connexion selon le mode
-func (a *App) testBrowserConnectionForMode(ctx context.Context, mode string) error {
-	var timeout time.Duration
-	var message string
-
-	switch mode {
-	case "secure":
-		timeout = 30 * time.Second
-		message = "🔍 Test navigateur mode sécurisé..."
-	case "permissive":
-		timeout = 20 * time.Second
-		message = "🔍 Test navigateur mode permissif..."
-	case "minimal":
-		timeout = 10 * time.Second
-		message = "🔍 Test navigateur mode minimal..."
-	default:
-		timeout = 15 * time.Second
-		message = "🔍 Test navigateur..."
-	}
-
-	log.Println(message)
-	
-	testCtx, testCancel := context.WithTimeout(ctx, timeout)
-	defer testCancel()
-
-	// Test progressif selon le mode
-	if mode == "secure" {
-		err := chromedp.Run(testCtx,
-			chromedp.Sleep(3*time.Second),
-			chromedp.Navigate("about:blank"),
-			chromedp.Sleep(2*time.Second),
-			chromedp.WaitVisible("body", chromedp.ByQuery),
-		)
-		if err != nil {
-			return fmt.Errorf("test sécurisé échoué: %v", err)
-		}
-	} else {
-		err := chromedp.Run(testCtx,
-			chromedp.Navigate("about:blank"),
-			chromedp.WaitVisible("body", chromedp.ByQuery),
-		)
-		if err != nil {
-			return fmt.Errorf("test rapide échoué: %v", err)
-		}
-	}
-
-	log.Printf("✅ Connexion navigateur réussie en mode %s", mode)
-	return nil
-}
-
-// extractCardDetails extrait les détails de la page
-func (a *App) extractCardDetails(ctx context.Context, url string, result *CardOffer, info *ScrapedCardInfo) (*ScrapedCardInfo, error) {
-	// Utiliser le résultat obtenu
-	info.Offers = []CardOffer{*result}
-	info.Price = result.Price
-	info.PriceNum = result.PriceNum
-
-	// Extraire les informations de base (nom, set, rareté) depuis la page
+	// Extraire les informations de base (nom, set, rareté)
 	err := chromedp.Run(ctx,
 		chromedp.Navigate(url),
 		chromedp.WaitVisible("body", chromedp.ByQuery),
 		chromedp.Sleep(2*time.Second),
 	)
 	if err != nil {
-		log.Printf("Erreur navigation pour extraction détails: %v", err)
+		log.Printf("Erreur navigation: %v", err)
 	}
 
 	// Extraire le nom
@@ -920,7 +770,6 @@ func (a *App) extractCardDetails(ctx context.Context, url string, result *CardOf
 
 	// Extraire la rareté et le set depuis l'info-list-container
 	var rarityFromPage, setFromPage string
-	var pageInfo map[string]any
 	err = chromedp.Run(ctx,
 		chromedp.Evaluate(`
 			(function() {
@@ -941,22 +790,986 @@ func (a *App) extractCardDetails(ctx context.Context, url string, result *CardOf
 				}
 				return result;
 			})()
-		`, &pageInfo),
+		`, &map[string]interface{}{}),
 	)
-
-	if err == nil && pageInfo != nil {
-		if rarity, ok := pageInfo["rarity"].(string); ok {
-			rarityFromPage = strings.TrimSpace(rarity)
-		}
-		if setName, ok := pageInfo["set_name"].(string); ok {
-			setFromPage = strings.TrimSpace(setName)
+	
+	// Extraire les valeurs depuis le résultat JavaScript
+	if err == nil {
+		var pageInfo map[string]interface{}
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`
+				(function() {
+					var result = {rarity: '', set_name: ''};
+					try {
+						var infoContainer = document.querySelector('.info-list-container');
+						if (infoContainer) {
+							var rarityElement = infoContainer.querySelector('svg[data-bs-original-title]');
+							result.rarity = rarityElement ? rarityElement.getAttribute('data-bs-original-title') : '';
+							
+							var setElement = infoContainer.querySelector('a[href*="/Expansions/"]');
+							result.set_name = setElement ? setElement.textContent.trim() : '';
+						}
+					} catch(e) {
+						console.log('Erreur extraction:', e);
+					}
+					return result;
+				})()
+			`, &pageInfo),
+		)
+		
+		if err == nil && pageInfo != nil {
+			if rarity, ok := pageInfo["rarity"].(string); ok {
+				rarityFromPage = strings.TrimSpace(rarity)
+			}
+			if setName, ok := pageInfo["set_name"].(string); ok {
+				setFromPage = strings.TrimSpace(setName)
+			}
 		}
 	}
+	
+	log.Printf("Informations extraites de la page: rareté='%s', set='%s'", rarityFromPage, setFromPage)
 
 	// Utiliser les informations extraites, en priorité depuis la page principale
 	if setFromPage != "" {
 		info.Set = setFromPage
-		result.SetName = setFromPage
+		result.SetName = setFromPage // Mettre à jour aussi dans result pour les logs
+	} else if result.SetName != "" {
+		info.Set = result.SetName
+	} else {
+		info.Set = "Set inconnu"
+	}
+	
+	if rarityFromPage != "" {
+		info.Rarity = rarityFromPage
+		result.Rarity = rarityFromPage // Mettre à jour aussi dans result pour les logs
+	} else if result.Rarity != "" {
+		info.Rarity = result.Rarity
+	} else {
+		info.Rarity = "Rareté inconnue"
+	}
+	
+	info.Offers = []CardOffer{*result}
+
+	// Utiliser la carte trouvée
+	info.Price = result.Price
+	info.PriceNum = result.PriceNum
+	log.Printf("✅ Offre sélectionnée: %s (mint: %s, langue: %s, edition: %t, rarity: %s, set: %s)",
+		result.Price, result.Mint, result.Language, result.Edition, result.Rarity, result.SetName)
+
+	return info, nil
+}
+
+// scrapeCardInfoWindows gère le scraping spécifique Windows avec modes multiples
+func (a *App) scrapeCardInfoWindows(url string, req AddCardRequest) (*ScrapedCardInfo, error) {
+	modes := []struct {
+		name    string
+		timeout time.Duration
+		options []chromedp.ExecAllocatorOption
+	}{
+		{
+			name:    "secure",
+			timeout: 90 * time.Second,
+			options: a.getChromeOptionsSecure(),
+		},
+		{
+			name:    "permissive", 
+			timeout: 120 * time.Second,
+			options: a.getChromeOptionsPermissive(),
+		},
+		{
+			name:    "minimal",
+			timeout: 60 * time.Second,
+			options: a.getChromeOptionsMinimal(),
+		},
+	}
+
+	for attempt, mode := range modes {
+		log.Printf("🎯 Tentative %d/3 avec mode %s", attempt+1, mode.name)
+		log.Printf("🪟 Mode Windows - Configuration %s", mode.name)
+		
+		result, err := a.tryScrapingMode(url, req, mode.options, mode.timeout)
+		if result != nil {
+			log.Printf("✅ Succès avec mode %s", mode.name)
+			return result, nil
+		}
+		
+		log.Printf("❌ Mode %s échoué: %v", mode.name, err)
+		if attempt < len(modes)-1 {
+			log.Println("⏳ Attente avant tentative suivante...")
+			time.Sleep(3 * time.Second)
+		}
+	}
+
+	// Tous les modes chromedp ont échoué, essayer le moteur web intégré de Wails
+	log.Println("🔄 Tous les modes navigateur ont échoué, tentative avec moteur web Wails...")
+	return a.scrapeCardInfoWithWails(url, req)
+}
+
+// scrapeCardInfoStandard gère le scraping standard pour macOS/Linux
+func (a *App) scrapeCardInfoStandard(url string, req AddCardRequest) (*ScrapedCardInfo, error) {
+	opts := a.getChromeOptions()
+	return a.tryScrapingMode(url, req, opts, 60*time.Second)
+}
+
+
+// scrapeCardInfoWithWails utilise le moteur web intégré de Wails
+func (a *App) scrapeCardInfoWithWails(url string, req AddCardRequest) (*ScrapedCardInfo, error) {
+	log.Println("🌐 Mode Wails WebView - Utilisation du moteur web intégré")
+	
+	// Le moteur web Wails utilise le WebView système (Edge WebView2 sur Windows)
+	// qui est plus fiable que chromedp car il utilise le navigateur système
+	
+	// Créer un contexte chromedp mais avec les options système
+	opts := []chromedp.ExecAllocatorOption{
+		// Utiliser le navigateur système par défaut
+		chromedp.Flag("headless", false),  // Mode visible pour debug si nécessaire
+		chromedp.Flag("disable-web-security", false),  // Garder la sécurité
+		chromedp.Flag("disable-features", "VizDisplayCompositor"),
+		chromedp.WindowSize(1920, 1080),
+		chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0"),
+	}
+	
+	// Ne pas forcer un chemin navigateur spécifique - laisser le système choisir
+	log.Println("🔧 Utilisation du WebView système (Edge WebView2/Safari WebKit)")
+	
+	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	defer allocCancel()
+	
+	ctx, ctxCancel := chromedp.NewContext(allocCtx)
+	defer ctxCancel()
+	
+	// Test simple pour vérifier que le moteur web fonctionne
+	log.Println("🔍 Test du moteur web intégré...")
+	testCtx, testCancel := context.WithTimeout(ctx, 15*time.Second)
+	defer testCancel()
+	
+	err := chromedp.Run(testCtx,
+		chromedp.Navigate("about:blank"),
+		chromedp.Sleep(2*time.Second),
+	)
+	
+	if err != nil {
+		return nil, fmt.Errorf("moteur web intégré inaccessible: %v", err)
+	}
+	
+	log.Println("✅ Moteur web intégré fonctionnel")
+	
+	// Maintenant utiliser ce contexte pour le scraping
+	return a.scrapeWithWailsWebView(ctx, url, req)
+}
+
+// scrapeWithWailsWebView effectue le scraping avec le WebView et recherche par critères
+func (a *App) scrapeWithWailsWebView(ctx context.Context, url string, req AddCardRequest) (*ScrapedCardInfo, error) {
+	log.Printf("🔍 Navigation vers: %s", url)
+	log.Printf("📋 Critères de recherche: Qualité=%s, Langue=%s, Édition=%t", req.Quality, req.Language, req.Edition)
+	
+	// Créer un timeout pour toute l'opération
+	scrapeCtx, scrapeCancel := context.WithTimeout(ctx, 60*time.Second)
+	defer scrapeCancel()
+	
+	// Naviguer vers la page et attendre le chargement
+	err := chromedp.Run(scrapeCtx,
+		chromedp.Navigate(url),
+		chromedp.WaitVisible("body", chromedp.ByQuery),
+		chromedp.Sleep(5*time.Second), // Attendre le chargement complet des offres
+	)
+	
+	if err != nil {
+		return nil, fmt.Errorf("erreur navigation WebView: %v", err)
+	}
+	
+	log.Println("✅ Page chargée dans le WebView")
+	
+	// Rechercher la meilleure offre selon les critères
+	result := a.findBestOfferWebView(scrapeCtx, req.Quality, req.Language, req.Edition, url)
+	if result != nil {
+		log.Printf("✅ Carte trouvée avec critères: %s à %s", result.Name, result.Price)
+		return result, nil
+	}
+	
+	log.Println("❌ Aucune carte trouvée correspondant aux critères")
+	return nil, fmt.Errorf("aucune carte correspondant aux critères qualité=%s, langue=%s, édition=%t", req.Quality, req.Language, req.Edition)
+}
+
+// findBestOfferWebView recherche la meilleure offre selon les critères dans le WebView
+func (a *App) findBestOfferWebView(ctx context.Context, quality, language string, edition bool, url string) *ScrapedCardInfo {
+	log.Printf("🔍 Recherche d'offres avec critères: qualité=%s, langue=%s, édition=%t", quality, language, edition)
+	
+	// D'abord extraire les informations de base de la carte
+	info := &ScrapedCardInfo{}
+	
+	// Extraire le nom depuis le titre
+	var pageTitle string
+	err := chromedp.Run(ctx,
+		chromedp.Title(&pageTitle),
+	)
+	
+	if err == nil && pageTitle != "" {
+		if idx := strings.Index(pageTitle, " - "); idx != -1 {
+			info.Name = strings.TrimSpace(pageTitle[:idx])
+		} else {
+			info.Name = strings.TrimSpace(pageTitle)
+		}
+		log.Printf("✅ Nom de la carte: %s", info.Name)
+	}
+	
+	// Extraire l'image de la carte
+	var cardImageURL string
+	err = chromedp.Run(ctx,
+		chromedp.AttributeValue(`img[src*="card"][src*=".jpg"], img[alt*="card"], img[class*="card"]`, "src", &cardImageURL, nil),
+	)
+	
+	if err == nil && cardImageURL != "" {
+		if !strings.HasPrefix(cardImageURL, "http") {
+			cardImageURL = "https://www.cardmarket.com" + cardImageURL
+		}
+		info.ImageURL = cardImageURL
+		log.Printf("✅ Image de la carte: %s", info.ImageURL)
+	}
+	
+	// Maintenant rechercher dans le tableau des offres
+	offers := a.extractOffersFromWebView(ctx, quality, language, edition)
+	
+	if len(offers) == 0 {
+		log.Println("❌ Aucune offre trouvée correspondant aux critères")
+		return nil
+	}
+	
+	// Trouver la meilleure offre (prix le plus bas)
+	var bestOffer *CardOffer
+	for i, offer := range offers {
+		if bestOffer == nil || offer.PriceNum < bestOffer.PriceNum {
+			bestOffer = &offers[i]
+		}
+	}
+	
+	if bestOffer != nil {
+		info.Price = bestOffer.Price
+		info.PriceNum = bestOffer.PriceNum
+		info.Set = "Extension CardMarket"
+		info.Rarity = "Rareté CardMarket"
+		
+		// Créer la liste des offres
+		info.Offers = offers
+		
+		log.Printf("✅ Meilleure offre trouvée: %s (qualité: %s, langue: %s)", bestOffer.Price, bestOffer.Mint, bestOffer.Language)
+		return info
+	}
+	
+	return nil
+}
+
+// extractOffersFromWebView extrait toutes les offres du tableau CardMarket selon les critères
+func (a *App) extractOffersFromWebView(ctx context.Context, quality, language string, edition bool) []CardOffer {
+	log.Println("📋 Extraction des offres du tableau...")
+	
+	// D'abord, debugger pour voir ce qu'il y a sur la page
+	var pageHTML string
+	err := chromedp.Run(ctx,
+		chromedp.Evaluate(`document.body.innerHTML`, &pageHTML),
+	)
+	if err == nil && len(pageHTML) > 0 {
+		log.Printf("🔍 Page HTML size: %d bytes", len(pageHTML))
+		
+		// Rechercher des patterns de prix pour confirmer qu'il y a du contenu
+		priceMatches := regexp.MustCompile(`\d+[,.]?\d*\s*€`).FindAllString(pageHTML, -1)
+		maxShow := 5
+		if len(priceMatches) < maxShow {
+			maxShow = len(priceMatches)
+		}
+		log.Printf("💰 Patterns de prix trouvés: %d (%v)", len(priceMatches), priceMatches[:maxShow])
+		
+		// Rechercher des tableaux
+		tableMatches := regexp.MustCompile(`<table[^>]*>`).FindAllString(pageHTML, -1)
+		log.Printf("📊 Tableaux trouvés: %d", len(tableMatches))
+		
+		// Debugging: rechercher tous les éléments qui pourraient contenir des offres
+		var debugInfo map[string]interface{}
+		err := chromedp.Run(ctx,
+			chromedp.Evaluate(`
+				(function() {
+					// Compter les éléments avec prix (contenant €)
+					var divsWithPrice = 0;
+					var allDivs = document.querySelectorAll('div');
+					for (var i = 0; i < allDivs.length; i++) {
+						if (allDivs[i].textContent && allDivs[i].textContent.indexOf('€') !== -1) {
+							divsWithPrice++;
+						}
+					}
+					
+					return {
+						tables: document.querySelectorAll('table').length,
+						article_rows: document.querySelectorAll('.article-row').length, 
+						product_rows: document.querySelectorAll('.product-row').length,
+						offer_rows: document.querySelectorAll('[class*="offer"]').length,
+						sell_rows: document.querySelectorAll('[class*="sell"]').length,
+						tr_elements: document.querySelectorAll('tr').length,
+						tbody_elements: document.querySelectorAll('tbody').length,
+						divs_with_price: divsWithPrice,
+						all_divs: allDivs.length
+					};
+				})()
+			`, &debugInfo),
+		)
+		
+		if err == nil && debugInfo != nil {
+			log.Printf("🔍 Debug structure page:")
+			for key, value := range debugInfo {
+				log.Printf("   - %s: %v", key, value)
+			}
+		}
+	}
+	
+	var offers []CardOffer
+	
+	// Patterns de sélecteurs pour le tableau des offres CardMarket (plus exhaustifs)
+	tableSelectors := []string{
+		"table.table",
+		".sellOffersTable", 
+		"table[class*='offers']",
+		"table[class*='sell']",
+		"table[class*='table']",
+		".table-striped",
+		".table-hover",
+		"tbody",
+		"table",
+		".offers-table",
+		"#offers-table",
+		".table.table-striped", // CardMarket utilise souvent cette classe
+		".table.table-hover",
+		"#sellerOffersTable",
+		".offers-container table",
+		"[data-table='offers']",
+	}
+	
+	// Essayer de trouver le tableau des offres
+	for _, tableSelector := range tableSelectors {
+		log.Printf("🔍 Test sélecteur tableau: %s", tableSelector)
+		
+		// Vérifier si le tableau existe
+		var tableExists bool
+		err := chromedp.Run(ctx,
+			chromedp.Evaluate(fmt.Sprintf("document.querySelector('%s') !== null", tableSelector), &tableExists),
+		)
+		
+		if err != nil || !tableExists {
+			continue
+		}
+		
+		log.Printf("✅ Tableau trouvé avec: %s", tableSelector)
+		
+		// Extraire toutes les lignes du tableau
+		offersExtracted := a.parseTableRows(ctx, tableSelector, quality, language, edition)
+		offers = append(offers, offersExtracted...)
+		
+		if len(offers) > 0 {
+			break
+		}
+	}
+	
+	// Si aucune offre trouvée avec les tableaux, essayer extraction directe de tous les prix
+	if len(offers) == 0 {
+		log.Println("🔍 Aucun tableau trouvé, extraction directe des prix...")
+		offers = a.extractPricesDirectly(ctx, quality, language, edition)
+	}
+	
+	// Si toujours aucune offre, essayer une approche différente avec tous les éléments prix
+	if len(offers) == 0 {
+		log.Println("🔍 Tentative d'extraction universelle de tous les prix visibles...")
+		offers = a.extractAllVisiblePrices(ctx, quality, language, edition)
+	}
+	
+	log.Printf("📊 Total offres extraites: %d", len(offers))
+	return offers
+}
+
+// extractAllVisiblePrices extrait tous les prix visibles de manière plus agressive
+func (a *App) extractAllVisiblePrices(ctx context.Context, quality, language string, edition bool) []CardOffer {
+	var offers []CardOffer
+	
+	log.Println("🔍 Extraction universelle de tous les prix...")
+	
+	// Script pour extraire absolument tous les prix visibles
+	script := `
+		(function() {
+			const allPrices = [];
+			
+			// 1. Chercher dans tous les éléments visibles
+			const walkDOM = function(node) {
+				if (node.nodeType === Node.TEXT_NODE) {
+					const text = node.textContent || '';
+					const priceMatches = text.match(/(\d+[,.]?\d*)\s*€/g);
+					if (priceMatches) {
+						for (let price of priceMatches) {
+							const numPrice = parseFloat(price.replace(',', '.').replace('€', '').trim());
+							if (numPrice > 0 && numPrice < 1000) { // Prix raisonnable
+								allPrices.push({
+									price: price,
+									numPrice: numPrice,
+									context: text.trim().substring(0, 50),
+									element: node.parentElement ? node.parentElement.tagName : 'TEXT'
+								});
+							}
+						}
+					}
+				} else if (node.nodeType === Node.ELEMENT_NODE) {
+					// Ignorer les scripts et styles
+					if (node.tagName !== 'SCRIPT' && node.tagName !== 'STYLE') {
+						for (let child of node.childNodes) {
+							walkDOM(child);
+						}
+					}
+				}
+			};
+			
+			// 2. Chercher aussi dans les attributs et data-*
+			const allElements = document.querySelectorAll('*');
+			for (let elem of allElements) {
+				// Vérifier les attributs data-price, value, etc.
+				const attrs = ['data-price', 'value', 'data-value', 'title', 'alt'];
+				for (let attr of attrs) {
+					const attrValue = elem.getAttribute(attr);
+					if (attrValue) {
+						const priceMatches = attrValue.match(/(\d+[,.]?\d*)\s*€/g);
+						if (priceMatches) {
+							for (let price of priceMatches) {
+								const numPrice = parseFloat(price.replace(',', '.').replace('€', '').trim());
+								if (numPrice > 0 && numPrice < 1000) {
+									allPrices.push({
+										price: price,
+										numPrice: numPrice,
+										context: 'attr:' + attr,
+										element: elem.tagName
+									});
+								}
+							}
+						}
+					}
+				}
+			}
+			
+			// Parcourir le DOM
+			walkDOM(document.body);
+			
+			// Supprimer les doublons et trier
+			const uniquePrices = [];
+			const seenPrices = new Set();
+			
+			for (let item of allPrices) {
+				if (!seenPrices.has(item.numPrice)) {
+					seenPrices.add(item.numPrice);
+					uniquePrices.push(item);
+				}
+			}
+			
+			return uniquePrices.sort((a, b) => a.numPrice - b.numPrice);
+		})();
+	`
+	
+	var rawPrices []interface{}
+	err := chromedp.Run(ctx,
+		chromedp.Evaluate(script, &rawPrices),
+	)
+	
+	if err != nil {
+		log.Printf("❌ Erreur extraction universelle: %v", err)
+		return offers
+	}
+	
+	log.Printf("🔍 Prix universels trouvés: %d", len(rawPrices))
+	
+	// Convertir en offres
+	for i, rawPrice := range rawPrices {
+		if priceMap, ok := rawPrice.(map[string]interface{}); ok {
+			if numPrice, ok := priceMap["numPrice"].(float64); ok {
+				if priceStr, ok := priceMap["price"].(string); ok {
+					// Ne pas assigner automatiquement les critères utilisateur
+					// Extraire les vraies informations depuis le contexte de l'offre
+					var offerQuality, offerLanguage string
+					var offerEdition bool
+					
+					if context, ok := priceMap["context"].(string); ok {
+						offerQuality = extractQualityFromContext(context)
+						offerLanguage = extractLanguageFromContext(context) 
+						offerEdition = extractEditionFromContext(context)
+					}
+					
+					offer := CardOffer{
+						Price:    priceStr,
+						PriceNum: numPrice,
+						Mint:     offerQuality,
+						Language: offerLanguage,
+						Edition:  offerEdition,
+						Rarity:   "Rareté universelle",
+						SetName:  "Set CardMarket",
+					}
+					offers = append(offers, offer)
+					
+					// Log avec contexte pour debugging
+					if context, ok := priceMap["context"].(string); ok {
+						log.Printf("✅ Prix #%d: %s (contexte: %s)", i+1, offer.Price, context)
+					}
+					
+					// Limiter pour éviter le spam
+					if len(offers) >= 10 {
+						break
+					}
+				}
+			}
+		}
+	}
+	
+	return offers
+}
+
+// extractPricesDirectly extrait directement tous les prix de la page
+func (a *App) extractPricesDirectly(ctx context.Context, quality, language string, edition bool) []CardOffer {
+	var offers []CardOffer
+	
+	// Script pour extraire tous les éléments contenant des prix
+	script := `
+		(function() {
+			const pricesFound = [];
+			
+			// Priorité 1: Chercher dans les lignes de tableaux (plus précis)
+			const tableRows = document.querySelectorAll('tr, .offer-row, [class*="row"]');
+			for (let row of tableRows) {
+				const text = row.textContent || row.innerText || '';
+				const priceMatch = text.match(/(\d+[,.]?\d*)\s*€/g);
+				
+				if (priceMatch && priceMatch.length > 0) {
+					for (let price of priceMatch) {
+						const numPrice = parseFloat(price.replace(',', '.').replace('€', ''));
+						if (numPrice > 0 && numPrice < 500) {
+							pricesFound.push({
+								price: price,
+								numPrice: numPrice,
+								context: text // Contexte complet de la ligne pour extraire critères
+							});
+						}
+					}
+				}
+			}
+			
+			// Priorité 2: Si pas assez d'offres, chercher dans tous les éléments
+			if (pricesFound.length < 3) {
+				const allElements = document.querySelectorAll('*');
+				for (let elem of allElements) {
+					const text = elem.textContent || elem.innerText || '';
+					const priceMatch = text.match(/(\d+[,.]?\d*)\s*€/g);
+					
+					if (priceMatch && priceMatch.length > 0) {
+						for (let price of priceMatch) {
+							const numPrice = parseFloat(price.replace(',', '.').replace('€', ''));
+							if (numPrice > 0 && numPrice < 500) {
+								// Essayer de trouver la ligne parente qui contient plus d'infos
+								let contextElem = elem;
+								while (contextElem.parentElement && contextElem.parentElement.textContent.length < 200) {
+									contextElem = contextElem.parentElement;
+								}
+								
+								pricesFound.push({
+									price: price,
+									numPrice: numPrice,
+									context: contextElem.textContent || text
+								});
+							}
+						}
+					}
+				}
+			}
+			
+			// Supprimer les doublons et trier par prix
+			const uniquePrices = [];
+			const seenPrices = new Set();
+			
+			for (let item of pricesFound) {
+				if (!seenPrices.has(item.numPrice)) {
+					seenPrices.add(item.numPrice);
+					uniquePrices.push(item);
+				}
+			}
+			
+			return uniquePrices.sort((a, b) => a.numPrice - b.numPrice).slice(0, 10); // Max 10 offres
+		})();
+	`
+	
+	var rawPrices []interface{}
+	err := chromedp.Run(ctx,
+		chromedp.Evaluate(script, &rawPrices),
+	)
+	
+	if err != nil {
+		log.Printf("❌ Erreur extraction directe: %v", err)
+		return offers
+	}
+	
+	log.Printf("🔍 Prix bruts extraits: %d", len(rawPrices))
+	
+	// Convertir en offres
+	for i, rawPrice := range rawPrices {
+		if priceMap, ok := rawPrice.(map[string]interface{}); ok {
+			if numPrice, ok := priceMap["numPrice"].(float64); ok {
+				// Ne pas assigner automatiquement les critères utilisateur
+				// Extraire les vraies informations depuis le contexte de l'offre
+				var offerQuality, offerLanguage string
+				var offerEdition bool
+				
+				if context, ok := priceMap["context"].(string); ok {
+					offerQuality = extractQualityFromContext(context)
+					offerLanguage = extractLanguageFromContext(context)
+					offerEdition = extractEditionFromContext(context)
+				}
+				
+				offer := CardOffer{
+					Price:    fmt.Sprintf("%.2f€", numPrice),
+					PriceNum: numPrice,
+					Mint:     offerQuality,
+					Language: offerLanguage,
+					Edition:  offerEdition,
+					Rarity:   "Rareté inconnue",
+					SetName:  "Set CardMarket",
+				}
+				offers = append(offers, offer)
+				log.Printf("✅ Prix #%d: %s", i+1, offer.Price)
+				
+				// Limiter à quelques offres pour éviter le spam
+				if len(offers) >= 3 {
+					break
+				}
+			}
+		}
+	}
+	
+	return offers
+}
+
+// parseTableRows parse les lignes du tableau pour extraire les offres
+func (a *App) parseTableRows(ctx context.Context, tableSelector, quality, language string, edition bool) []CardOffer {
+	var offers []CardOffer
+	
+	// Script JavaScript simplifié pour extraire prix et texte
+	script := fmt.Sprintf(`
+		(function() {
+			const table = document.querySelector('%s');
+			if (!table) return [];
+			
+			const rows = table.querySelectorAll('tr');
+			const offers = [];
+			
+			for (let i = 1; i < rows.length; i++) {
+				const row = rows[i];
+				const text = row.innerText || row.textContent || '';
+				
+				// Rechercher les prix dans le texte
+				const priceMatch = text.match(/(\d+[,.]?\d*)\s*€/);
+				if (priceMatch) {
+					offers.push({
+						price: priceMatch[0],
+						text: text,
+						quality: '%s',
+						language: '%s',
+						edition: %t
+					});
+				}
+			}
+			
+			return offers;
+		})();
+	`, tableSelector, quality, language, edition)
+	
+	var rawOffers []interface{}
+	err := chromedp.Run(ctx,
+		chromedp.Evaluate(script, &rawOffers),
+	)
+	
+	if err != nil {
+		log.Printf("❌ Erreur extraction JavaScript: %v", err)
+		return offers
+	}
+	
+	log.Printf("🔍 Offres brutes extraites: %d", len(rawOffers))
+	
+	// Convertir les offres
+	for _, rawOffer := range rawOffers {
+		if offerMap, ok := rawOffer.(map[string]interface{}); ok {
+			if priceStr, ok := offerMap["price"].(string); ok {
+				priceRegex := regexp.MustCompile(`(\d+[,.]?\d*)\s*€`)
+				if matches := priceRegex.FindStringSubmatch(priceStr); len(matches) > 1 {
+					priceVal := strings.ReplaceAll(matches[1], ",", ".")
+					if price, err := strconv.ParseFloat(priceVal, 64); err == nil {
+						// Ne pas assigner automatiquement les critères utilisateur
+						// Extraire les vraies informations depuis le contexte de l'offre
+						var offerQuality, offerLanguage string
+						var offerEdition bool
+						
+						if text, ok := offerMap["text"].(string); ok {
+							offerQuality = extractQualityFromContext(text)
+							offerLanguage = extractLanguageFromContext(text)
+							offerEdition = extractEditionFromContext(text)
+						}
+						
+						offer := CardOffer{
+							Price:    fmt.Sprintf("%.2f€", price),
+							PriceNum: price,
+							Mint:     offerQuality,
+							Language: offerLanguage,
+							Edition:  offerEdition,
+							Rarity:   "Rareté CardMarket",
+							SetName:  "Set CardMarket",
+						}
+						offers = append(offers, offer)
+						log.Printf("✅ Offre extraite: %s", offer.Price)
+					}
+				}
+			}
+		}
+	}
+	
+	return offers
+}
+
+// parseHTMLContent extrait les informations de la carte depuis le HTML
+func (a *App) parseHTMLContent(htmlContent string, req AddCardRequest) (*ScrapedCardInfo, error) {
+	log.Println("🔍 Parsing du contenu HTML...")
+	
+	info := &ScrapedCardInfo{}
+	
+	// Extraire le nom de la carte
+	nameRegex := regexp.MustCompile(`<title>([^<]+)\s*-\s*[^<]*</title>`)
+	if matches := nameRegex.FindStringSubmatch(htmlContent); len(matches) > 1 {
+		info.Name = strings.TrimSpace(matches[1])
+		log.Printf("✅ Nom trouvé: %s", info.Name)
+	}
+	
+	// Extraire l'extension/set
+	setRegex := regexp.MustCompile(`"setName"\s*:\s*"([^"]+)"`)
+	if matches := setRegex.FindStringSubmatch(htmlContent); len(matches) > 1 {
+		info.Set = matches[1]
+		log.Printf("✅ Extension trouvée: %s", info.Set)
+	}
+	
+	// Extraire la rareté
+	rarityRegex := regexp.MustCompile(`"rarity"\s*:\s*"([^"]+)"`)
+	if matches := rarityRegex.FindStringSubmatch(htmlContent); len(matches) > 1 {
+		info.Rarity = matches[1]
+		log.Printf("✅ Rareté trouvée: %s", info.Rarity)
+	}
+	
+	// Extraire l'URL de l'image
+	imageRegex := regexp.MustCompile(`<img[^>]+src="([^"]*card[^"]*\.jpg[^"]*)"`)
+	if matches := imageRegex.FindStringSubmatch(htmlContent); len(matches) > 1 {
+		info.ImageURL = matches[1]
+		if !strings.HasPrefix(info.ImageURL, "http") {
+			info.ImageURL = "https://www.cardmarket.com" + info.ImageURL
+		}
+		log.Printf("✅ Image trouvée: %s", info.ImageURL)
+	}
+	
+	// Rechercher les prix dans le HTML
+	// Pattern pour les prix avec qualité
+	priceRegex := regexp.MustCompile(`class="[^"]*price[^"]*"[^>]*>([0-9,]+\.[0-9]{2})\s*€`)
+	priceMatches := priceRegex.FindAllStringSubmatch(htmlContent, -1)
+	
+	log.Printf("🔍 Trouvé %d prix potentiels", len(priceMatches))
+	
+	// Commenté : ne pas prendre automatiquement le premier prix
+	// La logique de sélection du bon prix selon les critères se fait plus tard
+	// if len(priceMatches) > 0 {
+	//	 // Prendre le premier prix trouvé comme prix de base
+	//	 priceStr := priceMatches[0][1]
+	//	 priceStr = strings.ReplaceAll(priceStr, ",", "")
+	//	 if price, err := strconv.ParseFloat(priceStr, 64); err == nil {
+	//		 info.Price = fmt.Sprintf("%.2f€", price)
+	//		 info.PriceNum = price
+	//		 log.Printf("✅ Prix trouvé: %s", info.Price)
+	//	 }
+	// }
+	
+	// Si pas de nom trouvé, extraire depuis l'URL
+	if info.Name == "" {
+		urlParts := strings.Split(req.URL, "/")
+		if len(urlParts) > 0 {
+			lastPart := urlParts[len(urlParts)-1]
+			info.Name = strings.ReplaceAll(lastPart, "-", " ")
+			log.Printf("⚠️  Nom extrait de l'URL: %s", info.Name)
+		}
+	}
+	
+	// Si pas de prix trouvé, mettre un prix par défaut
+	if info.Price == "" {
+		info.Price = "0.00€"
+		info.PriceNum = 0.0
+		log.Println("⚠️  Aucun prix trouvé, prix par défaut: 0.00€")
+	}
+	
+	return info, nil
+}
+
+
+// testBrowserConnectionSimple teste la connexion avec un contexte isolé
+func (a *App) testBrowserConnectionSimple(opts []chromedp.ExecAllocatorOption, timeout time.Duration) error {
+	log.Printf("🔍 Test navigateur mode Windows...")
+	
+	// Créer un contexte de test complètement séparé
+	testAllocCtx, testAllocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	defer testAllocCancel()
+	
+	testCtx, testCancel := chromedp.NewContext(testAllocCtx)
+	defer testCancel()
+	
+	// Test avec timeout court
+	timeoutCtx, timeoutCancel := context.WithTimeout(testCtx, 10*time.Second)
+	defer timeoutCancel()
+	
+	// Test minimal : juste créer une page
+	err := chromedp.Run(timeoutCtx,
+		chromedp.Navigate("about:blank"),
+		chromedp.Sleep(1*time.Second),
+	)
+	
+	if err != nil {
+		return fmt.Errorf("test rapide échoué: %v", err)
+	}
+	
+	return nil
+}
+
+// cleanupWindowsBrowsers ferme les processus de navigateur qui pourraient interférer (Windows uniquement)
+func (a *App) cleanupWindowsBrowsers() {
+	if runtime.GOOS == "windows" {
+		log.Println("🧹 Nettoyage des processus navigateur...")
+		// Note: Nous ne tuons pas les processus utilisateur, juste un avertissement
+		log.Println("⚠️  Si Edge est ouvert, veuillez le fermer complètement et relancer l'application")
+	}
+}
+
+// tryScrapingMode tente le scraping avec des options et timeout spécifiques
+func (a *App) tryScrapingMode(url string, req AddCardRequest, opts []chromedp.ExecAllocatorOption, timeout time.Duration) (*ScrapedCardInfo, error) {
+	// Nettoyage préventif sur Windows
+	a.cleanupWindowsBrowsers()
+	
+	// Test de connectivité AVANT de créer le contexte principal
+	if err := a.testBrowserConnectionSimple(opts, timeout); err != nil {
+		return nil, fmt.Errorf("impossible de se connecter au navigateur: %v", err)
+	}
+	
+	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
+	defer allocCancel()
+
+	// Créer le contexte avec timeout spécifique
+	ctx, ctxCancel := chromedp.NewContext(allocCtx, chromedp.WithLogf(log.Printf))
+	defer ctxCancel()
+
+	info := &ScrapedCardInfo{}
+	var result *CardOffer
+
+	// Mode Windows : tentatives multiples avec délais plus longs
+	if runtime.GOOS == "windows" {
+		result = a.scrapeWithRetries(req, ctx, url)
+		if result == nil {
+			return nil, fmt.Errorf("aucune carte correspondant aux critères qualité=%s, langue=%s, édition=%t après plusieurs tentatives", req.Quality, req.Language, req.Edition)
+		}
+	} else {
+		// Mode standard pour macOS/Linux
+		result = a.launchLoop(req.Quality, req.Language, req.Edition, false, ctx, url)
+		if result == nil {
+			log.Println("🔄 Première tentative échouée, essai avec chargement supplémentaire...")
+			result = a.launchLoop(req.Quality, req.Language, req.Edition, true, ctx, url)
+		}
+		if result == nil {
+			return nil, fmt.Errorf("aucune carte correspondant aux critères qualité=%s, langue=%s, édition=%t", req.Quality, req.Language, req.Edition)
+		}
+	}
+
+	// Utiliser le résultat obtenu
+	info.Offers = []CardOffer{*result}
+	info.Price = result.Price
+	info.PriceNum = result.PriceNum
+
+	// Extraire les informations de base (nom, set, rareté)
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(url),
+		chromedp.WaitVisible("body", chromedp.ByQuery),
+		chromedp.Sleep(2*time.Second),
+	)
+	if err != nil {
+		log.Printf("Erreur navigation: %v", err)
+	}
+
+	// Extraire le nom
+	var name string
+	err = chromedp.Run(ctx, chromedp.Text("h1", &name, chromedp.ByQuery))
+	if err != nil || name == "" {
+		name = "Carte inconnue"
+	}
+	info.Name = strings.TrimSpace(name)
+
+	// Extraire la rareté et le set depuis l'info-list-container
+	var rarityFromPage, setFromPage string
+	err = chromedp.Run(ctx,
+		chromedp.Evaluate(`
+			(function() {
+				var result = {rarity: '', set_name: ''};
+				try {
+					var infoContainer = document.querySelector('.info-list-container');
+					if (infoContainer) {
+						// Extraire la rareté - chercher le SVG avec data-bs-original-title
+						var rarityElement = infoContainer.querySelector('svg[data-bs-original-title]');
+						result.rarity = rarityElement ? rarityElement.getAttribute('data-bs-original-title') : '';
+						
+						// Extraire le nom du set - chercher le lien vers l'expansion
+						var setElement = infoContainer.querySelector('a[href*="/Expansions/"]');
+						result.set_name = setElement ? setElement.textContent.trim() : '';
+					}
+				} catch(e) {
+					console.log('Erreur extraction:', e);
+				}
+				return result;
+			})()
+		`, &map[string]interface{}{}),
+	)
+
+	// Extraire les valeurs depuis le résultat JavaScript
+	if err == nil {
+		var pageInfo map[string]interface{}
+		err = chromedp.Run(ctx,
+			chromedp.Evaluate(`
+				(function() {
+					var result = {rarity: '', set_name: ''};
+					try {
+						var infoContainer = document.querySelector('.info-list-container');
+						if (infoContainer) {
+							var rarityElement = infoContainer.querySelector('svg[data-bs-original-title]');
+							result.rarity = rarityElement ? rarityElement.getAttribute('data-bs-original-title') : '';
+							
+							var setElement = infoContainer.querySelector('a[href*="/Expansions/"]');
+							result.set_name = setElement ? setElement.textContent.trim() : '';
+						}
+					} catch(e) {
+						console.log('Erreur extraction:', e);
+					}
+					return result;
+				})()
+			`, &pageInfo),
+		)
+
+		if err == nil && pageInfo != nil {
+			if rarity, ok := pageInfo["rarity"].(string); ok {
+				rarityFromPage = strings.TrimSpace(rarity)
+			}
+			if setName, ok := pageInfo["set_name"].(string); ok {
+				setFromPage = strings.TrimSpace(setName)
+			}
+		}
+	}
+
+	log.Printf("Informations extraites de la page: rareté='%s', set='%s'", rarityFromPage, setFromPage)
+
+	// Utiliser les informations extraites, en priorité depuis la page principale
+	if setFromPage != "" {
+		info.Set = setFromPage
+		result.SetName = setFromPage // Mettre à jour aussi dans result pour les logs
 	} else if result.SetName != "" {
 		info.Set = result.SetName
 	} else {
@@ -965,15 +1778,20 @@ func (a *App) extractCardDetails(ctx context.Context, url string, result *CardOf
 
 	if rarityFromPage != "" {
 		info.Rarity = rarityFromPage
-		result.Rarity = rarityFromPage
+		result.Rarity = rarityFromPage // Mettre à jour aussi dans result pour les logs
 	} else if result.Rarity != "" {
 		info.Rarity = result.Rarity
 	} else {
 		info.Rarity = "Rareté inconnue"
 	}
 
-	log.Printf("✅ Détails extraits: nom='%s', set='%s', rarity='%s', prix='%s'",
-		info.Name, info.Set, info.Rarity, info.Price)
+	info.Offers = []CardOffer{*result}
+
+	// Utiliser la carte trouvée
+	info.Price = result.Price
+	info.PriceNum = result.PriceNum
+	log.Printf("✅ Offre sélectionnée: %s (mint: %s, langue: %s, edition: %t, rarity: %s, set: %s)",
+		result.Price, result.Mint, result.Language, result.Edition, result.Rarity, result.SetName)
 
 	return info, nil
 }
@@ -1248,7 +2066,7 @@ func (a *App) getInfos(ctx context.Context) ([]CardOffer, error) {
 	for i := 0; i < rowsCount; i++ {
 		log.Printf("Traitement de la carte %d/%d...\n", i+1, rowsCount)
 
-		var cardData map[string]any
+		var cardData map[string]interface{}
 
 		// Extraire les informations de chaque carte via JavaScript
 		err = chromedp.Run(ctx,
@@ -1428,8 +2246,12 @@ func (a *App) launchLoop(quality, langue string, edition, load bool, ctx context
 func (a *App) getPagePatient(moreLoad bool, ctx context.Context, url string) error {
 	log.Println("🐌 Mode patient - Navigation avec délais étendus...")
 
+	// Créer un nouveau contexte avec timeout très long pour la navigation
+	navCtx, navCancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer navCancel()
+
 	// Navigation plus lente
-	err := chromedp.Run(ctx,
+	err := chromedp.Run(navCtx,
 		chromedp.Navigate(url),
 		chromedp.WaitVisible("body", chromedp.ByQuery),
 		chromedp.Sleep(5*time.Second), // Délai plus long
@@ -1552,7 +2374,7 @@ func (a *App) getInfosPatient(ctx context.Context) ([]CardOffer, error) {
 		// Délai entre chaque carte
 		time.Sleep(1 * time.Second)
 
-		var cardData map[string]any
+		var cardData map[string]interface{}
 		err = chromedp.Run(ctx,
 			chromedp.Evaluate(fmt.Sprintf(`
 				(function() {
@@ -1611,4 +2433,85 @@ func (a *App) getInfosPatient(ctx context.Context) ([]CardOffer, error) {
 
 	log.Printf("✅ Mode patient: %d cartes extraites\n", len(res))
 	return res, nil
+}
+
+// extractQualityFromContext extrait la qualité depuis le contexte HTML
+func extractQualityFromContext(context string) string {
+	context = strings.ToLower(context)
+	
+	qualityMap := map[string]string{
+		"near mint":     "NM",
+		"nm":           "NM",
+		"lightly played": "LP", 
+		"lp":           "LP",
+		"moderately played": "MP",
+		"mp":           "MP",
+		"heavily played": "HP",
+		"hp":           "HP",
+		"poor":         "PO",
+		"po":           "PO",
+		"damaged":      "PO",
+	}
+	
+	for keyword, quality := range qualityMap {
+		if strings.Contains(context, keyword) {
+			return quality
+		}
+	}
+	
+	return "" // Qualité inconnue
+}
+
+// extractLanguageFromContext extrait la langue depuis le contexte HTML
+func extractLanguageFromContext(context string) string {
+	context = strings.ToLower(context)
+	
+	languageMap := map[string]string{
+		"français":  "Français",
+		"french":    "Français", 
+		"english":   "English",
+		"anglais":   "English",
+		"german":    "Deutsch",
+		"allemand":  "Deutsch",
+		"deutsch":   "Deutsch",
+		"italian":   "Italiano",
+		"italien":   "Italiano",
+		"italiano":  "Italiano",
+		"spanish":   "Español",
+		"espagnol":  "Español",
+		"español":   "Español",
+		"japanese":  "Japanese",
+		"japonais":  "Japanese",
+	}
+	
+	for keyword, language := range languageMap {
+		if strings.Contains(context, keyword) {
+			return language
+		}
+	}
+	
+	return "" // Langue inconnue
+}
+
+// extractEditionFromContext extrait l'information d'édition depuis le contexte HTML
+func extractEditionFromContext(context string) bool {
+	context = strings.ToLower(context)
+	
+	firstEditionKeywords := []string{
+		"1st edition",
+		"first edition", 
+		"première édition",
+		"1ere edition",
+		"1ère édition",
+		"1st ed",
+		"first ed",
+	}
+	
+	for _, keyword := range firstEditionKeywords {
+		if strings.Contains(context, keyword) {
+			return true
+		}
+	}
+	
+	return false // Par défaut, pas première édition
 }
